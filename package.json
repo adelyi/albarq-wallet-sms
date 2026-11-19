@@ -1,0 +1,14 @@
+{
+  "name": "albarq-wallet-sms",
+  "version": "1.2.0",
+  "description": "محفظة البرق - نظام المحفظة الإلكترونية ونقاط البيع POS مع تحكم OTP وإشعارات SMS عبر Twilio",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "sqlite3": "^5.1.7",
+    "twilio": "^5.0.0"
+  }
+}
