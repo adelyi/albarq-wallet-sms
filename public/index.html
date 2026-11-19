@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>محفظة البرق — نظام المحفظة الإلكترونية ونقاط البيع POS</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card: #131a26;
+      --card-2: #192232;
+      --border: #27344a;
+      --text: #f3f6fb;
+      --muted: #9aa7bd;
+      --amber: #f59e0b;
+      --green: #10b981;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .container { max-width: 780px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .header-box { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--amber); color: #111; display: grid; place-items: center;
+      font-size: 22px; font-weight: 800;
+    }
+    h1, h2, h3, h4 { margin: 0 0 8px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    label { display: block; margin: 10px 0 6px; font-size: 14px; color: #dce4f2; }
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card-2);
+      color: var(--text);
+      font-size: 15px;
+    }
+    button {
+      width: 100%;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .btn-amber { background: var(--amber); color: #111; }
+    .btn-green { background: var(--green); color: #062118; }
+    .btn-red { background: var(--red); color: #fff; }
+    .btn-dark { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+    .btn-sm { width: auto; padding: 8px 12px; margin-top: 0; font-size: 13px; }
+    .notice {
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-bottom: 14px;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.12);
+      color: #fde68a;
+      font-size: 14px;
+      white-space: pre-line;
+    }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .stat { background: var(--card-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .stat .val { font-size: 20px; font-weight: 800; color: var(--amber); margin-top: 4px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card header-box">
+      <div class="brand">
+        <div class="logo">⚡</div>
+        <div>
+          <h1>محفظة البرق</h1>
+          <div class="muted">نظام المحفظة الإلكترونية ونقاط البيع POS</div>
+        </div>
+      </div>
+      <div id="sessionBadge" class="hidden">
+        <span id="sessionInfo" class="muted"></span>
+        <button class="btn-dark btn-sm" onclick="logout()">خروج</button>
+      </div>
+    </div>
+
+    <div id="globalAlert" class="notice hidden"></div>
+
+    <div id="authSection">
+      <div class="card">
+        <h2>تسجيل الدخول</h2>
+        <div id="otpBox" class="hidden">
+          <div id="otpNotice" class="notice"></div>
+          <label>رمز التحقق OTP (6 أرقام)</label>
+          <input id="otpInput" type="text" maxlength="6" placeholder="أدخل رمز التحقق المرسل" />
+          <button class="btn-green" onclick="verifyOtp()">تأكيد OTP والدخول للإدارة</button>
+          <button class="btn-dark" onclick="cancelOtp()">إلغاء</button>
+        </div>
+
+        <div id="loginForm">
+          <label>رقم الهاتف</label>
+          <input id="loginPhone" type="text" placeholder="783553915" />
+          <label>كلمة المرور</label>
+          <input id="loginPass" type="password" placeholder="••••••••" />
+          <button class="btn-amber" onclick="login()">تسجيل الدخول</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>إنشاء حساب محفظة جديد</h2>
+        <label>الاسم الكامل</label>
+        <input id="regName" type="text" placeholder="الاسم الثلاثي" />
+        <label>رقم الهاتف</label>
+        <input id="regPhone" type="text" placeholder="77xxxxxxxx" />
+        <label>كلمة المرور</label>
+        <input id="regPass" type="password" placeholder="4 أحرف أو أكثر" />
+        <button class="btn-green" onclick="registerUser()">إنشاء المحفظة</button>
+      </div>
+    </div>
+
+    <div id="walletSection" class="hidden">
+      <div class="card">
+        <div class="stats-grid">
+          <div class="stat">
+            <div class="muted">رصيد المحفظة</div>
+            <div id="wBalance" class="val">0.00</div>
+          </div>
+          <div class="stat">
+            <div class="muted">رمز نقطة البيع POS</div>
+            <div id="wPos" class="val" style="font-size:16px;">—</div>
+          </div>
+          <div class="stat">
+            <div class="muted">حالة التوثيق KYC</div>
+            <div id="wKyc" class="val" style="font-size:16px;">—</div>
+          </div>
+          <div class="stat">
+            <div class="muted">الحد اليومي</div>
+            <div id="wLimit" class="val" style="font-size:16px;">—</div>
+          </div>
+        </div>
+
+        <div class="tabs" style="margin-top:16px;">
+          <button class="btn-amber btn-sm" onclick="showTab('opsTab')">تحويل ودفع POS</button>
+          <button class="btn-dark btn-sm" onclick="showTab('kycTab')">التوثيق KYC ونقطة البيع</button>
+          <button class="btn-dark btn-sm" onclick="showTab('historyTab')">سجل العمليات</button>
+          <button id="adminTabBtn" class="btn-dark btn-sm hidden" onclick="openAdminTab()">لوحة الإدارة العليا</button>
+        </div>
+      </div>
+
+      <div id="opsTab" class="card">
+        <h3>تحويل رصيد برقم الهاتف</h3>
+        <label>رقم هاتف المستلم</label>
+        <input id="trfReceiver" type="text" placeholder="7xxxxxxxx" />
+        <label>المبلغ</label>
+        <input id="trfAmount" type="number" step="0.01" placeholder="0.00" />
+        <label>ملاحظة</label>
+        <input id="trfNote" type="text" placeholder="تحويل محفظة البرق" />
+        <button class="btn-amber" onclick="sendTransfer()">إرسال التحويل</button>
+
+        <hr style="border-color:var(--border); margin:20px 0;" />
+
+        <h3>دفع عبر نقطة بيع POS</h3>
+        <label>رمز التاجر / نقطة البيع</label>
+        <input id="posCodeInput" type="text" placeholder="POS-ADMIN" />
+        <label>المبلغ</label>
+        <input id="posAmount" type="number" step="0.01" placeholder="0.00" />
+        <label>بيان الفاتورة</label>
+        <input id="posNote" type="text" placeholder="مشتريات نقطة بيع" />
+        <button class="btn-green" onclick="payPos()">إتمام الدفع POS</button>
+      </div>
+
+      <div id="kycTab" class="card hidden">
+        <h3>التوثيق KYC ونقطة البيع</h3>
+        <p class="muted">رمز نقطة البيع الخاص بحسابك: <strong id="kycPosCode"></strong></p>
+        <p class="muted">حالة التوثيق الحالية: <strong id="kycStatusText"></strong></p>
+        <button class="btn-green" onclick="requestKyc()">إرسال طلب توثيق KYC</button>
+      </div>
+
+      <div id="historyTab" class="card hidden">
+        <h3>سجل العمليات</h3>
+        <table>
+          <thead>
+            <tr><th>المرجع</th><th>النوع</th><th>المبلغ</th><th>البيان</th></tr>
+          </thead>
+          <tbody id="userTxBody"></tbody>
+        </table>
+      </div>
+
+      <div id="adminTab" class="card hidden">
+        <h3>لوحة الإدارة العليا</h3>
+        <div class="stats-grid" style="margin-bottom:16px;">
+          <div class="stat"><div class="muted">إجمالي المستخدمين</div><div id="admUsersCount" class="val">0</div></div>
+          <div class="stat"><div class="muted">إجمالي أرصدة المحافظ</div><div id="admBalancesSum" class="val">0.00</div></div>
+          <div class="stat"><div class="muted">رصيد الخزينة الرئيسية</div><div id="admVault" class="val">0.00</div></div>
+          <div class="stat"><div class="muted">عدد العمليات</div><div id="admTxCount" class="val">0</div></div>
+        </div>
+
+        <h4>تعديل رصيد حساب (إيداع / خصم إداري)</h4>
+        <label>رقم هاتف الحساب</label>
+        <input id="admTargetPhone" type="text" placeholder="رقم هاتف المستخدم أو الإدارة" />
+        <label>نوع العملية</label>
+        <select id="admOperation">
+          <option value="deposit">إيداع / إضافة رصيد</option>
+          <option value="withdraw">خصم / سحب إداري</option>
+        </select>
+        <label>المبلغ</label>
+        <input id="admAmount" type="number" step="0.01" placeholder="0.00" />
+        <label>سبب التسوية</label>
+        <input id="admReason" type="text" placeholder="تغذية رصيد / تسوية" />
+        <button class="btn-amber" onclick="adjustBalance()">تنفيذ تعديل الرصيد</button>
+
+        <h4 style="margin-top:20px;">إدارة الحسابات والتوثيق KYC</h4>
+        <table>
+          <thead>
+            <tr><th>الهاتف</th><th>الاسم</th><th>الرصيد</th><th>POS</th><th>KYC</th><th>الحالة</th><th>إجراء</th></tr>
+          </thead>
+          <tbody id="adminUsersBody"></tbody>
+        </table>
+
+        <h4 style="margin-top:20px;">مراقبة العمليات المباشرة</h4>
+        <table>
+          <thead>
+            <tr><th>المرجع</th><th>النوع</th><th>المبلغ</th><th>البيان</th></tr>
+          </thead>
+          <tbody id="adminTxBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = null;
+    let pendingAdminPhone = null;
+
+    function showAlert(msg) {
+      const el = document.getElementById('globalAlert');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideAlert() {
+      document.getElementById('globalAlert').classList.add('hidden');
+    }
+
+    function showTab(tabId) {
+      ['opsTab', 'kycTab', 'historyTab', 'adminTab'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+      });
+      document.getElementById(tabId).classList.remove('hidden');
+    }
+
+    async function login() {
+      hideAlert();
+      const phone = document.getElementById('loginPhone').value.trim();
+      const password = document.getElementById('loginPass').value;
+
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, password })
+      });
+      const data = await res.json();
+
+      if (!data.ok) return showAlert(data.message);
+
+      if (data.otpRequired) {
+        pendingAdminPhone = phone;
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('otpBox').classList.remove('hidden');
+
+        let noticeText = data.message || 'تم إرسال رمز التحقق OTP';
+        if (data.fallbackOtp) {
+          noticeText += ` — رمز التحقق المؤقت: ${data.fallbackOtp}`;
+          document.getElementById('otpInput').value = data.fallbackOtp;
+        } else {
+          document.getElementById('otpInput').value = '';
+        }
+        document.getElementById('otpNotice').textContent = noticeText;
+        return;
+      }
+
+      setSession(data.user);
+    }
+
+    async function verifyOtp() {
+      hideAlert();
+      const code = document.getElementById('otpInput').value.trim();
+      const res = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: pendingAdminPhone, code })
+      });
+      const data = await res.json();
+      if (!data.ok) return showAlert(data.message);
+
+      document.getElementById('otpBox').classList.add('hidden');
+      document.getElementById('loginForm').classList.remove('hidden');
+      pendingAdminPhone = null;
+      setSession(data.user);
+    }
+
+    function cancelOtp() {
+      pendingAdminPhone = null;
+      document.getElementById('otpBox').classList.add('hidden');
+      document.getElementById('loginForm').classList.remove('hidden');
+    }
+
+    async function registerUser() {
+      hideAlert();
+      const fullName = document.getElementById('regName').value.trim();
+      const phone = document.getElementById('regPhone').value.trim();
+      const password = document.getElementById('regPass').value;
+
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName, phone, password })
+      });
+      const data = await res.json();
+      if (!data.ok) return showAlert(data.message);
+      setSession(data.user);
+    }
+
+    function setSession(user) {
+      currentUser = user;
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('walletSection').classList.remove('hidden');
+      document.getElementById('sessionBadge').classList.remove('hidden');
+      document.getElementById('sessionInfo').textContent = `${user.full_name} (${user.phone})`;
+      document.getElementById('adminTabBtn').classList.toggle('hidden', user.role !== 'admin');
+      refreshWallet();
+    }
+
+    function logout() {
+      currentUser = null;
+      document.getElementById('walletSection').classList.add('hidden');
+      document.getElementById('sessionBadge').classList.add('hidden');
+      document.getElementById('authSection').classList.remove('hidden');
+      showTab('opsTab');
+    }
+
+    async function refreshWallet() {
+      if (!currentUser) return;
+      const res = await fetch(`/api/wallet/${currentUser.phone}`);
+      const data = await res.json();
+      if (!data.ok) return;
+
+      currentUser = data.user;
+      document.getElementById('wBalance').textContent = Number(currentUser.balance).toFixed(2);
+      document.getElementById('wPos').textContent = currentUser.pos_code;
+      document.getElementById('wKyc').textContent = currentUser.kyc_status;
+      document.getElementById('wLimit').textContent = Number(currentUser.daily_limit).toLocaleString();
+      document.getElementById('kycPosCode').textContent = currentUser.pos_code;
+      document.getElementById('kycStatusText').textContent = currentUser.kyc_status;
+
+      const tbody = document.getElementById('userTxBody');
+      tbody.innerHTML = (data.transactions || []).map(tx => `
+        <tr>
+          <td>${tx.reference}</td>
+          <td>${tx.type}</td>
+          <td>${Number(tx.amount).toFixed(2)}</td>
+          <td>${tx.note || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function sendTransfer() {
+      hideAlert();
+      const receiverPhone = document.getElementById('trfReceiver').value.trim();
+      const amount = document.getElementById('trfAmount').value;
+      const note = document.getElementById('trfNote').value.trim();
+
+      const res = await fetch('/api/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderPhone: currentUser.phone, receiverPhone, amount, note })
+      });
+      const data = await res.json();
+      showAlert(data.ok ? `تم التحويل بنجاح — المرجع: ${data.reference}` : data.message);
+      if (data.ok) refreshWallet();
+    }
+
+    async function payPos() {
+      hideAlert();
+      const posCode = document.getElementById('posCodeInput').value.trim();
+      const amount = document.getElementById('posAmount').value;
+      const note = document.getElementById('posNote').value.trim();
+
+      const res = await fetch('/api/pos-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payerPhone: currentUser.phone, posCode, amount, note })
+      });
+      const data = await res.json();
+      showAlert(data.ok ? `تم الدفع عبر POS — المرجع: ${data.reference}` : data.message);
+      if (data.ok) refreshWallet();
+    }
+
+    async function requestKyc() {
+      hideAlert();
+      const res = await fetch('/api/kyc-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: currentUser.phone })
+      });
+      const data = await res.json();
+      showAlert(data.message);
+      if (data.ok) refreshWallet();
+    }
+
+    async function openAdminTab() {
+      showTab('adminTab');
+      await loadAdminOverview();
+    }
+
+    async function loadAdminOverview() {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      const res = await fetch(`/api/admin/overview?adminPhone=${currentUser.phone}`);
+      const data = await res.json();
+      if (!data.ok) return showAlert(data.message);
+
+      document.getElementById('admUsersCount').textContent = data.stats.totalUsers;
+      document.getElementById('admBalancesSum').textContent = Number(data.stats.totalBalances).toFixed(2);
+      document.getElementById('admVault').textContent = Number(data.stats.vaultBalance).toFixed(2);
+      document.getElementById('admTxCount').textContent = data.stats.totalTransactions;
+
+      document.getElementById('adminUsersBody').innerHTML = (data.users || []).map(u => `
+        <tr>
+          <td>${u.phone}</td>
+          <td>${u.full_name}</td>
+          <td>${Number(u.balance).toFixed(2)}</td>
+          <td>${u.pos_code}</td>
+          <td>${u.kyc_status}</td>
+          <td>${u.account_status}</td>
+          <td>
+            <button class="btn-green btn-sm" onclick="adminAction('${u.phone}', 'verify_kyc')">توثيق</button>
+            <button class="btn-red btn-sm" onclick="adminAction('${u.phone}', 'toggle_freeze')">تجميد/تنشيط</button>
+          </td>
+        </tr>
+      `).join('');
+
+      document.getElementById('adminTxBody').innerHTML = (data.transactions || []).map(tx => `
+        <tr>
+          <td>${tx.reference}</td>
+          <td>${tx.type}</td>
+          <td>${Number(tx.amount).toFixed(2)}</td>
+          <td>${tx.note || ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function adjustBalance() {
+      hideAlert();
+      const targetPhone = document.getElementById('admTargetPhone').value.trim();
+      const operation = document.getElementById('admOperation').value;
+      const amount = document.getElementById('admAmount').value;
+      const reason = document.getElementById('admReason').value.trim();
+
+      const res = await fetch('/api/admin/adjust-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPhone: currentUser.phone, targetPhone, operation, amount, reason })
+      });
+      const data = await res.json();
+      showAlert(data.message);
+      if (data.ok) {
+        refreshWallet();
+        loadAdminOverview();
+      }
+    }
+
+    async function adminAction(targetPhone, action) {
+      hideAlert();
+      const res = await fetch('/api/admin/account-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPhone: currentUser.phone, targetPhone, action })
+      });
+      const data = await res.json();
+      showAlert(data.message);
+      if (data.ok) {
+        refreshWallet();
+        loadAdminOverview();
+      }
+    }
+  </script>
+</body>
+</html>
