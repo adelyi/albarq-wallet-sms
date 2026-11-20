@@ -372,6 +372,23 @@
       gap: 8px;
       margin-bottom: 10px;
     }
+
+    .notif-btn-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .count-pill {
+      background: var(--amber);
+      color: #09101d;
+      font-size: 11px;
+      font-weight: 900;
+      padding: 1px 7px;
+      border-radius: 999px;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
@@ -458,23 +475,16 @@
 
     <!-- لوحة العميل / المشترك -->
     <div id="userDashboard" class="hidden">
-      <!-- إشعارات العمليات داخل محفظة العميل -->
-      <div id="userNotificationsCard" class="card">
-        <div class="row-actions" style="justify-content:space-between; margin-bottom:10px;">
-          <div>
-            <h3 style="margin:0">📩 رسائل وإشعارات العمليات <span id="unreadBadge" class="badge badge-amber hidden">0 جديد</span></h3>
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="markNotificationsRead()">تحديد كمقروءة</button>
-        </div>
-        <div id="userNotificationsList">
-          <div class="alert alert-info" style="margin-bottom:0">لا توجد إشعارات جديدة حالياً.</div>
-        </div>
-      </div>
-
-      <!-- بطاقة الرصيد وبيانات المشترك -->
+      <!-- بطاقة الرصيد وبيانات المشترك + زر الدخول لقسم الإشعارات -->
       <div class="balance-box">
-        <div style="font-size:15px; font-weight:700;">
-          مرحباً، <span id="uName"></span> (<span id="uPhone"></span>)
+        <div class="row-actions" style="justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+          <div style="font-size:15px; font-weight:700;">
+            مرحباً، <span id="uName"></span> (<span id="uPhone"></span>)
+          </div>
+          <button class="btn btn-secondary btn-sm notif-btn-wrap" onclick="toggleNotificationsSection()">
+            <span>🔔 الإشعارات</span>
+            <span id="unreadBadge" class="count-pill hidden">0</span>
+          </button>
         </div>
         <div class="balance-amount"><span id="uBalance">0.00</span> <span style="font-size:16px;">ر.ي</span></div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
@@ -484,6 +494,20 @@
         <div class="row-actions">
           <button class="btn btn-secondary btn-sm" onclick="refreshCurrentSession()">تحديث</button>
           <button class="btn btn-blue btn-sm" onclick="requestKyc()">طلب توثيق KYC</button>
+        </div>
+      </div>
+
+      <!-- قسم الإشعارات المستقل (يفتح عند الضغط على زر الإشعارات) -->
+      <div id="userNotificationsCard" class="card hidden">
+        <div class="row-actions" style="justify-content:space-between; margin-bottom:10px;">
+          <h3 style="margin:0">🔔 الإشعارات</h3>
+          <div class="row-actions">
+            <button class="btn btn-secondary btn-sm" onclick="markNotificationsRead()">تحديد كمقروءة</button>
+            <button class="btn btn-secondary btn-sm" onclick="closeNotificationsSection()">إغلاق</button>
+          </div>
+        </div>
+        <div id="userNotificationsList">
+          <div class="alert alert-info" style="margin-bottom:0">لا توجد إشعارات جديدة حالياً.</div>
         </div>
       </div>
 
@@ -748,6 +772,18 @@
       return d.toLocaleString('ar-YE', { dateStyle: 'short', timeStyle: 'short' });
     }
 
+    function toggleNotificationsSection() {
+      const card = document.getElementById('userNotificationsCard');
+      card.classList.toggle('hidden');
+      if (!card.classList.contains('hidden')) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    function closeNotificationsSection() {
+      document.getElementById('userNotificationsCard').classList.add('hidden');
+    }
+
     async function handleLogin() {
       hideAlert();
       const phone = document.getElementById('loginPhone').value.trim();
@@ -852,6 +888,7 @@
       } else {
         document.getElementById('adminDashboard').classList.add('hidden');
         document.getElementById('userDashboard').classList.remove('hidden');
+        document.getElementById('userNotificationsCard').classList.add('hidden');
         renderUserDashboard();
       }
     }
@@ -898,19 +935,19 @@
       const unreadCount = currentUserNotifs.filter((n) => !n.is_read).length;
 
       if (unreadCount > 0) {
-        unreadBadge.textContent = `${unreadCount} جديد`;
+        unreadBadge.textContent = `${unreadCount}`;
         unreadBadge.classList.remove('hidden');
       } else {
         unreadBadge.classList.add('hidden');
       }
 
       if (!currentUserNotifs.length) {
-        listEl.innerHTML = `<div class="alert alert-info" style="margin-bottom:0">لا توجد إشعارات أو رسائل عمليات حالياً.</div>`;
+        listEl.innerHTML = `<div class="alert alert-info" style="margin-bottom:0">لا توجد إشعارات حالياً.</div>`;
         return;
       }
 
       listEl.innerHTML = currentUserNotifs
-        .slice(0, 8)
+        .slice(0, 12)
         .map(
           (n) => `
           <div class="notif-card ${n.is_read ? '' : 'unread'}">
