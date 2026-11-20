@@ -3,36 +3,93 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
 
-let twilio = null;
-try {
-  twilio = require('twilio');
-} catch (_) {
-  twilio = null;
-}
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const ADMIN_PHONE = String(process.env.ADMIN_PHONE || '783553915').trim();
-const ADMIN_DEFAULT_PASS = String(process.env.ADMIN_DEFAULT_PASS || 'Barq@2026');
-const DISABLE_OTP = String(process.env.DISABLE_OTP || '').toLowerCase() === 'true';
-const SEND_REGISTER_SMS = String(process.env.SEND_REGISTER_SMS || '').toLowerCase() === 'true';
-const REQUIRE_CUSTOMER_OTP = String(process.env.REQUIRE_CUSTOMER_OTP || 'true').toLowerCase() !== 'false';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'wallet.db');
+const ADMIN_PHONE = process.env.ADMIN_PHONE || '783553915';
+const ADMIN_DEFAULT_PASS = process.env.ADMIN_DEFAULT_PASS || 'Barq@2026';
+const DISABLE_OTP = String(process.env.DISABLE_OTP || 'false').toLowerCase() === 'true';
+const SEND_REGISTER_SMS = String(process.env.SEND_REGISTER_SMS || 'false').toLowerCase() === 'true';
+const SMS_PROVIDER = String(process.env.SMS_PROVIDER || 'console').toLowerCase();
+const SMS_SENDER_ID = process.env.SMS_SENDER_ID || 'AlBarq';
 
-const SMS_PROVIDER = String(process.env.SMS_PROVIDER || 'console').trim().toLowerCase();
-const SMS_SENDER_ID = String(process.env.SMS_SENDER_ID || 'AlBarq').trim();
+const db = new sqlite3.Database(DB_PATH);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const dbPath = path.join(__dirname, 'albarq_wallet.db');
-const db = new sqlite3.Database(dbPath);
+function normalizePhone(phone) {
+  let cleaned = String(phone || '').replace(/\D/g, '');
+  if (cleaned.startsWith('967') && cleaned.length === 12) {
+    cleaned = cleaned.slice(3);
+  } else if (cleaned.startsWith('00967') && cleaned.length === 14) {
+    cleaned = cleaned.slice(5);
+  } else if (cleaned.startsWith('0') && cleaned.length === 10) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+function formatInternationalPhone(phone) {
+  const norm = normalizePhone(phone);
+  return norm.startsWith('967') ? `+${norm}` : `+967${norm}`;
+}
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(String(password)).digest('hex');
+}
+
+function generateOtpCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function generatePosCode(phone) {
+  const suffix = normalizePhone(phone).slice(-4).padStart(4, '0');
+  const rand = Math.floor(10 + Math.random() * 89);
+  return `POS-${suffix}-${rand}`;
+}
+
+async function sendNotification(toPhone, message, purpose = 'notification') {
+  const intlPhone = formatInternationalPhone(toPhone);
+  console.log(`[SMS -> ${intlPhone}] [Sender: ${SMS_SENDER_ID}] [Purpose: ${purpose}]: ${message}`);
+
+  if (SMS_PROVIDER === 'twilio') {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const from = process.env.TWILIO_PHONE_NUMBER;
+    if (!sid || !token || !from) {
+      return { sent: false, provider: 'twilio', reason: 'missing_twilio_env' };
+    }
+    try {
+      const auth = Buffer.from(`${sid}:${token}`).toString('base64');
+      const params = new URLSearchParams({ To: intlPhone, From: from, Body: message });
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { sent: false, provider: 'twilio', reason: data.message || 'twilio_error' };
+      }
+      return { sent: true, provider: 'twilio', sid: data.sid };
+    } catch (err) {
+      return { sent: false, provider: 'twilio', reason: err.message };
+    }
+  }
+
+  return { sent: true, provider: SMS_PROVIDER || 'console' };
+}
 
 function runAsync(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
-      if (err) return reject(err);
-      resolve({ lastID: this.lastID, changes: this.changes });
+      if (err) reject(err);
+      else resolve(this);
     });
   });
 }
@@ -40,8 +97,8 @@ function runAsync(sql, params = []) {
 function getAsync(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
-      if (err) return reject(err);
-      resolve(row);
+      if (err) reject(err);
+      else resolve(row);
     });
   });
 }
@@ -49,191 +106,20 @@ function getAsync(sql, params = []) {
 function allAsync(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
+      if (err) reject(err);
+      else resolve(rows);
     });
   });
 }
 
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(String(password)).digest('hex');
-}
-
-function normalizePhone(phone) {
-  return String(phone || '').replace(/\D+/g, '').trim();
-}
-
-function formatPhoneE164(phone) {
-  const raw = String(phone || '').trim();
-  if (raw.startsWith('+')) return raw;
-  const digits = normalizePhone(raw).replace(/^0+/, '');
-  if (digits.startsWith('967')) return `+${digits}`;
-  return `+967${digits}`;
-}
-
-function generateOtpCode() {
-  return String(crypto.randomInt(100000, 999999));
-}
-
-function generateRef(prefix = 'BRQ') {
-  const rand = crypto.randomInt(1000, 9999);
-  return `${prefix}-${Date.now()}-${rand}`;
-}
-
-async function createOrRefreshCustomerOtp(phone, fullName = '', purpose = 'register') {
-  const cleanPhone = normalizePhone(phone);
-  const code = generateOtpCode();
-  const expiresAt = Date.now() + 15 * 60 * 1000; // صلاحية 15 دقيقة
-
+async function createUserNotification(userPhone, title, message, txType = 'info', amount = 0, balanceAfter = null) {
+  const phone = normalizePhone(userPhone);
+  if (!phone) return;
   await runAsync(
-    `INSERT INTO customer_otp_challenges (phone, full_name, purpose, code, expires_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(phone) DO UPDATE SET
-       full_name = COALESCE(NULLIF(excluded.full_name, ''), customer_otp_challenges.full_name),
-       purpose = excluded.purpose,
-       code = excluded.code,
-       expires_at = excluded.expires_at,
-       created_at = CURRENT_TIMESTAMP`,
-    [cleanPhone, String(fullName || '').trim(), purpose, code, expiresAt]
+    `INSERT INTO notifications (user_phone, title, message, tx_type, amount, balance_after, is_read)
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
+    [phone, title, message, txType, Number(amount || 0), balanceAfter !== null ? Number(balanceAfter) : null]
   );
-
-  console.log(`[CUSTOMER OTP FOR ADMIN REVIEW] Phone: ${cleanPhone} | Purpose: ${purpose} | Code: ${code}`);
-  return { phone: cleanPhone, code, expiresAt };
-}
-
-async function dispatchSms(toPhone, bodyText) {
-  const toNumber = formatPhoneE164(toPhone);
-
-  if (SMS_PROVIDER === 'console') {
-    console.log(`[SMS -> ${toNumber}] [Sender: ${SMS_SENDER_ID}]: ${bodyText}`);
-    return { sent: true, reason: 'CONSOLE_LOG' };
-  }
-
-  if (SMS_PROVIDER === 'textbee') {
-    const apiKey = process.env.TEXTBEE_API_KEY;
-    const deviceId = process.env.TEXTBEE_DEVICE_ID;
-    if (!apiKey || !deviceId) {
-      return { sent: false, reason: 'MISSING_TEXTBEE_CONFIG' };
-    }
-    const res = await fetch(`https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/send-sms`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        recipients: [toNumber],
-        message: bodyText
-      })
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`TextBee failed (${res.status}): ${errText}`);
-    }
-    return { sent: true, reason: 'SENT' };
-  }
-
-  if (SMS_PROVIDER === 'custom_gateway') {
-    const gatewayUrl = process.env.SMS_GATEWAY_URL;
-    const apiKey = process.env.SMS_API_KEY;
-    if (!gatewayUrl) {
-      return { sent: false, reason: 'MISSING_GATEWAY_CONFIG' };
-    }
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
-    const res = await fetch(gatewayUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        sender: SMS_SENDER_ID,
-        to: toNumber,
-        message: bodyText
-      })
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Custom gateway failed (${res.status}): ${errText}`);
-    }
-    return { sent: true, reason: 'SENT' };
-  }
-
-  if (SMS_PROVIDER === 'twilio') {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromValue = process.env.SMS_SENDER_ID || process.env.TWILIO_PHONE_NUMBER;
-    if (!twilio || !accountSid || !authToken || !fromValue) {
-      return { sent: false, reason: 'MISSING_TWILIO_CONFIG' };
-    }
-    const client = twilio(accountSid, authToken);
-    await client.messages.create({
-      body: bodyText,
-      from: fromValue,
-      to: toNumber
-    });
-    return { sent: true, reason: 'SENT' };
-  }
-
-  return { sent: false, reason: 'UNKNOWN_PROVIDER' };
-}
-
-async function sendOtpViaSms(phone, otpCode) {
-  try {
-    const res = await dispatchSms(
-      phone,
-      `${SMS_SENDER_ID}: رمز التحقق المؤقت للدخول للإدارة هو ${otpCode}`
-    );
-    if (res.sent) {
-      return {
-        sent: true,
-        reason: res.reason,
-        message: `تم إرسال رمز التحقق OTP إلى الرقم ${formatPhoneE164(phone)}`
-      };
-    }
-    return {
-      sent: false,
-      reason: res.reason,
-      message: 'تم توليد رمز التحقق (لم يتم ضبط إعدادات بوابة الرسائل بعد)'
-    };
-  } catch (err) {
-    console.error('OTP SMS error:', err.message);
-    return {
-      sent: false,
-      reason: 'SMS_ERROR',
-      message: 'تعذر إرسال رسالة SMS حالياً، تم توفير رمز احتياطي مؤقت'
-    };
-  }
-}
-
-async function sendRegisterSms(phone, fullName, posCode) {
-  try {
-    return await dispatchSms(
-      phone,
-      `${SMS_SENDER_ID}: مرحباً ${fullName} في محفظة البرق. تم إنشاء محفظتك بنجاح ورمز نقطة البيع الخاص بك هو: ${posCode}`
-    );
-  } catch (err) {
-    console.error('Register SMS error:', err.message);
-    return { sent: false };
-  }
-}
-
-async function sendBalanceSms(phone, { actionLabel, amount, newBalance, reference, reason }) {
-  try {
-    const formattedAmount = Number(amount).toFixed(2);
-    const formattedBalance = Number(newBalance).toFixed(2);
-
-    const body =
-      `${SMS_SENDER_ID} (${reference})\n` +
-      `العملية: ${actionLabel}\n` +
-      `المبلغ: ${formattedAmount}\n` +
-      `الرصيد المتبقي: ${formattedBalance}` +
-      (reason ? `\nالبيان: ${reason}` : '');
-
-    return await dispatchSms(phone, body);
-  } catch (err) {
-    console.error('Balance SMS error:', err.message);
-    return { sent: false, reason: 'SMS_ERROR' };
-  }
 }
 
 async function initDatabase() {
@@ -243,12 +129,11 @@ async function initDatabase() {
       full_name TEXT NOT NULL,
       phone TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'user',
-      balance REAL NOT NULL DEFAULT 0.0,
-      pos_code TEXT UNIQUE NOT NULL,
-      kyc_status TEXT NOT NULL DEFAULT 'unverified',
-      account_status TEXT NOT NULL DEFAULT 'active',
-      daily_limit REAL NOT NULL DEFAULT 50000.0,
+      role TEXT DEFAULT 'user',
+      balance REAL DEFAULT 0,
+      pos_code TEXT UNIQUE,
+      kyc_status TEXT DEFAULT 'verified',
+      is_active INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -256,11 +141,10 @@ async function initDatabase() {
   await runAsync(`
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      reference TEXT UNIQUE NOT NULL,
-      type TEXT NOT NULL,
+      tx_ref TEXT UNIQUE NOT NULL,
       sender_phone TEXT,
       receiver_phone TEXT,
-      pos_code TEXT,
+      tx_type TEXT NOT NULL,
       amount REAL NOT NULL,
       note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -268,588 +152,643 @@ async function initDatabase() {
   `);
 
   await runAsync(`
-    CREATE TABLE IF NOT EXISTS ledger_entries (
+    CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tx_reference TEXT NOT NULL,
-      account_code TEXT NOT NULL,
-      debit REAL NOT NULL DEFAULT 0.0,
-      credit REAL NOT NULL DEFAULT 0.0,
+      user_phone TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      tx_type TEXT DEFAULT 'info',
+      amount REAL DEFAULT 0,
+      balance_after REAL,
+      is_read INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await runAsync(`
     CREATE TABLE IF NOT EXISTS otp_challenges (
-      phone TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT NOT NULL,
+      purpose TEXT NOT NULL,
       code TEXT NOT NULL,
-      expires_at INTEGER NOT NULL
+      payload_json TEXT,
+      expires_at INTEGER NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await runAsync(`
     CREATE TABLE IF NOT EXISTS customer_otp_challenges (
-      phone TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT NOT NULL,
       full_name TEXT,
-      purpose TEXT NOT NULL DEFAULT 'register',
+      purpose TEXT NOT NULL,
       code TEXT NOT NULL,
+      payload_json TEXT,
       expires_at INTEGER NOT NULL,
+      used INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  const existingAdmin = await getAsync('SELECT * FROM users WHERE phone = ?', [ADMIN_PHONE]);
+  const adminNorm = normalizePhone(ADMIN_PHONE);
+  const existingAdmin = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminNorm]);
   if (!existingAdmin) {
     await runAsync(
-      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, account_status, daily_limit)
-       VALUES (?, ?, ?, 'admin', 0.0, 'POS-ADMIN', 'verified', 'active', 999999999.0)`,
-      ['إدارة محفظة البرق', ADMIN_PHONE, hashPassword(ADMIN_DEFAULT_PASS)]
+      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, is_active)
+       VALUES (?, ?, ?, 'admin', 100000000, 'POS-ADMIN', 'verified', 1)`,
+      ['إدارة محفظة البرق', adminNorm, hashPassword(ADMIN_DEFAULT_PASS)]
     );
-  } else {
-    await runAsync(
-      `UPDATE users SET role = 'admin', kyc_status = 'verified', daily_limit = 999999999.0 WHERE phone = ?`,
-      [ADMIN_PHONE]
-    );
+  } else if (existingAdmin.role !== 'admin') {
+    await runAsync(`UPDATE users SET role = 'admin', kyc_status = 'verified', is_active = 1 WHERE phone = ?`, [adminNorm]);
   }
 }
 
-async function recordDoubleEntry(txRef, debitAccount, creditAccount, amount) {
-  await runAsync(
-    `INSERT INTO ledger_entries (tx_reference, account_code, debit, credit) VALUES (?, ?, ?, 0.0)`,
-    [txRef, debitAccount, amount]
-  );
-  await runAsync(
-    `INSERT INTO ledger_entries (tx_reference, account_code, debit, credit) VALUES (?, ?, 0.0, ?)`,
-    [txRef, creditAccount, amount]
-  );
+function isAdminUser(user) {
+  return user && (user.role === 'admin' || normalizePhone(user.phone) === normalizePhone(ADMIN_PHONE));
 }
 
-// طلب رمز OTP للعميل ليظهر للمسؤول الإداري ويرسله للمشارك
-app.post('/api/customer/request-otp', async (req, res) => {
-  try {
-    const phone = normalizePhone(req.body.phone);
-    const fullName = String(req.body.fullName || '').trim();
-    const purpose = String(req.body.purpose || 'pwa_register').trim();
+async function buildUserSummary(phone) {
+  const normPhone = normalizePhone(phone);
+  const user = await getAsync(
+    `SELECT id, full_name, phone, role, balance, pos_code, kyc_status, is_active, created_at
+     FROM users WHERE phone = ?`,
+    [normPhone]
+  );
+  if (!user) return null;
 
+  const transactions = await allAsync(
+    `SELECT id, tx_ref, sender_phone, receiver_phone, tx_type, amount, note, created_at
+     FROM transactions
+     WHERE sender_phone = ? OR receiver_phone = ?
+     ORDER BY id DESC
+     LIMIT 100`,
+    [normPhone, normPhone]
+  );
+
+  const notifications = await allAsync(
+    `SELECT id, user_phone, title, message, tx_type, amount, balance_after, is_read, created_at
+     FROM notifications
+     WHERE user_phone = ?
+     ORDER BY id DESC
+     LIMIT 50`,
+    [normPhone]
+  );
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  return {
+    user,
+    transactions,
+    notifications,
+    unreadCount,
+  };
+}
+
+// تسجيل عميل جديد مع توليد رمز OTP للمشارك وإظهاره للإدارة
+app.post('/api/register', async (req, res) => {
+  try {
+    const fullName = String(req.body.full_name || '').trim();
+    const phone = normalizePhone(req.body.phone);
+    const password = String(req.body.password || '');
+
+    if (!fullName || fullName.length < 2) {
+      return res.status(400).json({ error: 'يرجى إدخال الاسم الكامل بشكل صحيح.' });
+    }
     if (!phone || phone.length < 7) {
-      return res.status(400).json({ ok: false, message: 'يرجى إدخال رقم هاتف صحيح' });
+      return res.status(400).json({ error: 'يرجى إدخال رقم هاتف صحيح.' });
+    }
+    if (!password || password.length < 4) {
+      return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 4 أحرف أو أرقام على الأقل.' });
     }
 
-    const challenge = await createOrRefreshCustomerOtp(phone, fullName, purpose);
+    const existingUser = await getAsync(`SELECT id FROM users WHERE phone = ?`, [phone]);
+    if (existingUser) {
+      return res.status(409).json({ error: 'رقم الهاتف مسجل مسبقاً في محفظة البرق.' });
+    }
 
-    return res.json({
-      ok: true,
-      otpRequired: true,
-      deliveredByAdmin: true,
-      expiresAt: challenge.expiresAt,
-      message: 'تم إنشاء طلب رمز التحقق OTP وإرساله إلى المسؤول الإداري؛ تواصل مع الإدارة لاستلام الرمز وإدخاله.'
+    const code = generateOtpCode();
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    const payload = {
+      full_name: fullName,
+      phone,
+      password_hash: hashPassword(password),
+    };
+
+    await runAsync(`DELETE FROM customer_otp_challenges WHERE phone = ? AND purpose = 'register' AND used = 0`, [phone]);
+    await runAsync(
+      `INSERT INTO customer_otp_challenges (phone, full_name, purpose, code, payload_json, expires_at, used)
+       VALUES (?, ?, 'register', ?, ?, ?, 0)`,
+      [phone, fullName, code, JSON.stringify(payload), expiresAt]
+    );
+
+    const smsText = `${SMS_SENDER_ID}: رمز تفعيل محفظتك هو ${code} صالح لمدة 15 دقيقة.`;
+    if (SEND_REGISTER_SMS) {
+      await sendNotification(phone, smsText, 'customer_register_otp');
+    } else {
+      console.log(`[ADMIN-OTP-QUEUE] Phone: ${phone} | Name: ${fullName} | OTP: ${code}`);
+    }
+
+    return res.status(201).json({
+      requires_otp: true,
+      phone,
+      message: 'تم إنشاء طلب التسجيل وتوليد رمز OTP للمشارك. سيظهر الرمز في لوحة الإدارة لإرساله وتفعيل الحساب.',
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر إنشاء طلب رمز التحقق' });
+    console.error('Register error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تسجيل الحساب.' });
   }
 });
 
-// تأكيد رمز OTP الخاص بالعميل وتفعيل الحساب
-app.post('/api/customer/verify-otp', async (req, res) => {
+// تفعيل حساب العميل عبر رمز OTP الذي يرسله المسؤول
+app.post('/api/verify-customer-otp', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
     const code = String(req.body.code || '').trim();
 
     if (!phone || !code) {
-      return res.status(400).json({ ok: false, message: 'يرجى إدخال رقم الهاتف ورمز التحقق OTP' });
+      return res.status(400).json({ error: 'يرجى إدخال رقم الهاتف ورمز OTP.' });
     }
 
-    const challenge = await getAsync('SELECT * FROM customer_otp_challenges WHERE phone = ?', [phone]);
-    if (!challenge || challenge.code !== code || Date.now() > challenge.expires_at) {
-      return res.status(400).json({ ok: false, message: 'رمز التحقق OTP غير صحيح أو منتهي الصلاحية' });
+    const challenge = await getAsync(
+      `SELECT * FROM customer_otp_challenges
+       WHERE phone = ? AND code = ? AND used = 0
+       ORDER BY id DESC LIMIT 1`,
+      [phone, code]
+    );
+
+    if (!challenge) {
+      return res.status(400).json({ error: 'رمز OTP غير صحيح أو مستخدم مسبقاً.' });
+    }
+    if (Date.now() > Number(challenge.expires_at)) {
+      return res.status(400).json({ error: 'انتهت صلاحية رمز OTP، يرجى إعادة التسجيل أو طلب رمز جديد.' });
     }
 
-    await runAsync('DELETE FROM customer_otp_challenges WHERE phone = ?', [phone]);
+    const payload = challenge.payload_json ? JSON.parse(challenge.payload_json) : {};
+    const fullName = payload.full_name || challenge.full_name || `عميل ${phone}`;
+    const passwordHash = payload.password_hash || hashPassword('123456');
 
-    const existingUser = await getAsync('SELECT * FROM users WHERE phone = ?', [phone]);
+    const existingUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [phone]);
     if (existingUser) {
-      await runAsync("UPDATE users SET kyc_status = 'verified', account_status = 'active' WHERE phone = ?", [phone]);
+      await runAsync(`UPDATE customer_otp_challenges SET used = 1 WHERE id = ?`, [challenge.id]);
+      const summary = await buildUserSummary(phone);
+      return res.json({
+        message: 'الحساب مفعّل مسبقاً.',
+        ...summary,
+      });
     }
 
-    const user = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
-      [phone]
-    );
-
-    return res.json({
-      ok: true,
-      verified: true,
-      message: 'تم تأكيد رمز التحقق OTP بنجاح وتفعيل الحساب',
-      user: user || null
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر التحقق من رمز OTP للعميل' });
-  }
-});
-
-// عرض رموز OTP المعلقة للعملاء أمام المسؤول الإداري ليرسلها للمشاركين
-app.get('/api/admin/pending-otps', async (req, res) => {
-  try {
-    const adminPhone = normalizePhone(req.query.adminPhone || ADMIN_PHONE);
-    if (adminPhone !== ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'صلاحية الإدارة غير مخولة' });
+    let posCode = generatePosCode(phone);
+    const existingPos = await getAsync(`SELECT id FROM users WHERE pos_code = ?`, [posCode]);
+    if (existingPos) {
+      posCode = `${posCode}-${Math.floor(10 + Math.random() * 89)}`;
     }
-
-    const now = Date.now();
-    await runAsync('DELETE FROM customer_otp_challenges WHERE expires_at < ?', [now]);
-
-    const pendingOtps = await allAsync(
-      `SELECT phone, full_name, purpose, code, expires_at, created_at
-       FROM customer_otp_challenges
-       ORDER BY created_at DESC`
-    );
-
-    return res.json({ ok: true, pendingOtps });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'خطأ في جلب رموز OTP المعلقة' });
-  }
-});
-
-// إنشاء حساب جديد (التسجيل)
-app.post('/api/register', async (req, res) => {
-  try {
-    const fullName = String(req.body.fullName || '').trim();
-    const phone = normalizePhone(req.body.phone);
-    const password = String(req.body.password || '');
-
-    if (!fullName || phone.length < 7 || password.length < 4) {
-      return res.status(400).json({ ok: false, message: 'يرجى إدخال الاسم الكامل ورقم هاتف صحيح وكلمة مرور (4 أحرف فأكثر)' });
-    }
-
-    if (phone === ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'هذا الرقم محجوز لحساب الإدارة' });
-    }
-
-    const exists = await getAsync('SELECT id FROM users WHERE phone = ?', [phone]);
-    if (exists) {
-      return res.status(409).json({ ok: false, message: 'رقم الهاتف مسجل مسبقاً' });
-    }
-
-    const posCode = `POS-${phone.slice(-6)}-${crypto.randomInt(10, 99)}`;
-    const initialKycStatus = REQUIRE_CUSTOMER_OTP ? 'pending_otp' : 'unverified';
 
     await runAsync(
-      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, account_status, daily_limit)
-       VALUES (?, ?, ?, 'user', 0.0, ?, ?, 'active', 50000.0)`,
-      [fullName, phone, hashPassword(password), posCode, initialKycStatus]
+      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, is_active)
+       VALUES (?, ?, ?, 'user', 0, ?, 'verified', 1)`,
+      [fullName, phone, passwordHash, posCode]
     );
 
-    const user = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
-      [phone]
+    await runAsync(`UPDATE customer_otp_challenges SET used = 1 WHERE id = ?`, [challenge.id]);
+
+    await createUserNotification(
+      phone,
+      'مرحباً بك في محفظة البرق',
+      `تم تفعيل محفظتك بنجاح برقم ${phone} ورمز نقطة البيع ${posCode}. رصيدك الحالي: 0.00 ر.ي`,
+      'welcome',
+      0,
+      0
     );
 
-    let otpPendingAdmin = false;
-    if (REQUIRE_CUSTOMER_OTP) {
-      await createOrRefreshCustomerOtp(phone, fullName, 'register');
-      otpPendingAdmin = true;
-    }
-
-    let registerSmsSent = false;
-    if (SEND_REGISTER_SMS) {
-      const smsRes = await sendRegisterSms(phone, fullName, posCode);
-      registerSmsSent = smsRes.sent;
-    }
-
+    const summary = await buildUserSummary(phone);
     return res.json({
-      ok: true,
-      user,
-      otpRequired: REQUIRE_CUSTOMER_OTP,
-      otpPendingAdmin,
-      registerSmsSent,
-      message: REQUIRE_CUSTOMER_OTP
-        ? 'تم إنشاء الحساب؛ رمز OTP متاح لدى المسؤول الإداري لإرساله إليك وتأكيد التفعيل.'
-        : 'تم إنشاء المحفظة بنجاح'
+      message: 'تم تأكيد رمز التحقق OTP بنجاح وتفعيل الحساب.',
+      ...summary,
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'حدث خطأ أثناء إنشاء المحفظة' });
+    console.error('Verify customer OTP error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تفعيل الحساب.' });
   }
 });
 
-// تسجيل الدخول (مع إمكانية إيقاف OTP للإدارة عبر DISABLE_OTP)
+// تسجيل الدخول (للإدارة والعملاء)
 app.post('/api/login', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
     const password = String(req.body.password || '');
 
-    const user = await getAsync('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'يرجى إدخال رقم الهاتف وكلمة المرور.' });
+    }
+
+    const user = await getAsync(`SELECT * FROM users WHERE phone = ?`, [phone]);
     if (!user || user.password_hash !== hashPassword(password)) {
-      return res.status(401).json({ ok: false, message: 'رقم الهاتف أو كلمة المرور غير صحيحة' });
+      return res.status(401).json({ error: 'رقم الهاتف أو كلمة المرور غير صحيحة.' });
     }
 
-    if (user.account_status !== 'active') {
-      return res.status(403).json({ ok: false, message: 'هذا الحساب مجمّد حالياً' });
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'هذا الحساب غير مفعّل حالياً.' });
     }
 
-    if (!DISABLE_OTP && user.role === 'admin' && user.phone === ADMIN_PHONE) {
-      const otpCode = generateOtpCode();
-      const expiresAt = Date.now() + 5 * 60 * 1000;
-
+    if (isAdminUser(user) && !DISABLE_OTP) {
+      const code = generateOtpCode();
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+      await runAsync(`DELETE FROM otp_challenges WHERE phone = ? AND purpose = 'admin_login' AND used = 0`, [phone]);
       await runAsync(
-        `INSERT INTO otp_challenges (phone, code, expires_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(phone) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at`,
-        [ADMIN_PHONE, otpCode, expiresAt]
+        `INSERT INTO otp_challenges (phone, purpose, code, expires_at, used) VALUES (?, 'admin_login', ?, ?, 0)`,
+        [phone, code, expiresAt]
       );
-
-      const smsResult = await sendOtpViaSms(ADMIN_PHONE, otpCode);
-
+      await sendNotification(
+        phone,
+        `${SMS_SENDER_ID}: رمز التحقق المؤقت للدخول للإدارة هو ${code}`,
+        'admin_login_otp'
+      );
       return res.json({
-        ok: true,
-        otpRequired: true,
-        otpSent: smsResult.sent,
-        message: smsResult.message,
-        fallbackOtp: smsResult.sent ? undefined : otpCode
+        requires_admin_otp: true,
+        phone,
+        message: `تم إرسال رمز التحقق OTP إلى الرقم +967${phone}`,
       });
     }
 
-    const safeUser = {
-      id: user.id,
-      full_name: user.full_name,
-      phone: user.phone,
-      role: user.role,
-      balance: user.balance,
-      pos_code: user.pos_code,
-      kyc_status: user.kyc_status,
-      account_status: user.account_status,
-      daily_limit: user.daily_limit
-    };
-
-    return res.json({ ok: true, otpRequired: false, user: safeUser });
+    const summary = await buildUserSummary(phone);
+    return res.json({
+      requires_admin_otp: false,
+      ...summary,
+    });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر إتمام تسجيل الدخول' });
+    console.error('Login error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تسجيل الدخول.' });
   }
 });
 
-// تأكيد OTP للإدارة
-app.post('/api/verify-otp', async (req, res) => {
+// تأكيد رمز OTP للإدارة
+app.post('/api/verify-admin-otp', async (req, res) => {
   try {
-    const phone = normalizePhone(req.body.phone || ADMIN_PHONE);
+    const phone = normalizePhone(req.body.phone);
     const code = String(req.body.code || '').trim();
 
-    if (phone !== ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'التحقق عبر OTP مخصص لحساب الإدارة فقط' });
-    }
-
-    const challenge = await getAsync('SELECT * FROM otp_challenges WHERE phone = ?', [ADMIN_PHONE]);
-    if (!challenge || challenge.code !== code || Date.now() > challenge.expires_at) {
-      return res.status(400).json({ ok: false, message: 'رمز التحقق OTP غير صحيح أو منتهي الصلاحية' });
-    }
-
-    await runAsync('DELETE FROM otp_challenges WHERE phone = ?', [ADMIN_PHONE]);
-
-    const adminUser = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
-      [ADMIN_PHONE]
+    const challenge = await getAsync(
+      `SELECT * FROM otp_challenges
+       WHERE phone = ? AND purpose = 'admin_login' AND code = ? AND used = 0
+       ORDER BY id DESC LIMIT 1`,
+      [phone, code]
     );
 
-    return res.json({ ok: true, user: adminUser });
+    if (!challenge) {
+      return res.status(400).json({ error: 'رمز التحقق الإداري غير صحيح.' });
+    }
+    if (Date.now() > Number(challenge.expires_at)) {
+      return res.status(400).json({ error: 'انتهت صلاحية رمز التحقق الإداري.' });
+    }
+
+    await runAsync(`UPDATE otp_challenges SET used = 1 WHERE id = ?`, [challenge.id]);
+    const summary = await buildUserSummary(phone);
+    return res.json(summary);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر التحقق من رمز OTP' });
+    console.error('Verify admin OTP error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء التحقق من الرمز.' });
   }
 });
 
-// جلب بيانات المستخدم وسجل عملياته
+// جلب بيانات المحفظة والعمليات والإشعارات
 app.get('/api/wallet/:phone', async (req, res) => {
   try {
     const phone = normalizePhone(req.params.phone);
-    const user = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
+    const summary = await buildUserSummary(phone);
+    if (!summary) {
+      return res.status(404).json({ error: 'الحساب غير موجود.' });
+    }
+    return res.json(summary);
+  } catch (err) {
+    console.error('Get wallet error:', err);
+    return res.status(500).json({ error: 'تعذر جلب بيانات المحفظة.' });
+  }
+});
+
+// تعليم الإشعارات كمقروءة
+app.post('/api/notifications/read', async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) return res.status(400).json({ error: 'رقم الهاتف مطلوب.' });
+    await runAsync(`UPDATE notifications SET is_read = 1 WHERE user_phone = ?`, [phone]);
+    const notifications = await allAsync(
+      `SELECT id, user_phone, title, message, tx_type, amount, balance_after, is_read, created_at
+       FROM notifications WHERE user_phone = ? ORDER BY id DESC LIMIT 50`,
       [phone]
     );
-
-    if (!user) {
-      return res.status(404).json({ ok: false, message: 'الحساب غير موجود' });
-    }
-
-    const transactions = await allAsync(
-      `SELECT * FROM transactions
-       WHERE sender_phone = ? OR receiver_phone = ?
-       ORDER BY id DESC LIMIT 50`,
-      [phone, phone]
-    );
-
-    return res.json({ ok: true, user, transactions });
+    return res.json({ notifications, unreadCount: 0 });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'خطأ في جلب بيانات المحفظة' });
+    return res.status(500).json({ error: 'تعذر تحديث حالة الإشعارات.' });
   }
 });
 
 // تحويل رصيد برقم الهاتف
 app.post('/api/transfer', async (req, res) => {
   try {
-    const senderPhone = normalizePhone(req.body.senderPhone);
-    const receiverPhone = normalizePhone(req.body.receiverPhone);
+    const senderPhone = normalizePhone(req.body.sender_phone);
+    const receiverPhone = normalizePhone(req.body.receiver_phone);
     const amount = Number(req.body.amount);
-    const note = String(req.body.note || 'تحويل محفظة البرق').trim();
+    const note = String(req.body.note || 'تحويل رصيد').trim();
 
-    if (!senderPhone || !receiverPhone || senderPhone === receiverPhone || !Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ ok: false, message: 'بيانات التحويل غير مكتملة أو غير صحيحة' });
+    if (!senderPhone || !receiverPhone) {
+      return res.status(400).json({ error: 'يرجى إدخال رقم المرسل ورقم المستلم.' });
+    }
+    if (senderPhone === receiverPhone) {
+      return res.status(400).json({ error: 'لا يمكن التحويل إلى نفس الرقم.' });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح أكبر من صفر.' });
     }
 
-    const sender = await getAsync('SELECT * FROM users WHERE phone = ?', [senderPhone]);
-    const receiver = await getAsync('SELECT * FROM users WHERE phone = ?', [receiverPhone]);
+    const sender = await getAsync(`SELECT * FROM users WHERE phone = ?`, [senderPhone]);
+    const receiver = await getAsync(`SELECT * FROM users WHERE phone = ?`, [receiverPhone]);
 
-    if (!sender || !receiver) {
-      return res.status(404).json({ ok: false, message: 'تأكد من صحة رقم المرسل ورقم المستلم' });
+    if (!sender) return res.status(404).json({ error: 'حساب المرسل غير موجود.' });
+    if (!receiver) return res.status(404).json({ error: 'رقم هاتف المستلم غير مسجل في محفظة البرق.' });
+    if (Number(sender.balance) < amount) {
+      return res.status(400).json({ error: 'الرصيد المتاح غير كافٍ لإتمام التحويل.' });
     }
 
-    if (sender.account_status !== 'active' || receiver.account_status !== 'active') {
-      return res.status(403).json({ ok: false, message: 'أحد الحسابين مجمّد' });
-    }
+    const newSenderBal = Number(sender.balance) - amount;
+    const newReceiverBal = Number(receiver.balance) + amount;
+    const txRef = `BRQ-TRF-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
-    if (sender.balance < amount) {
-      return res.status(400).json({ ok: false, message: 'الرصيد غير كافٍ لإتمام التحويل' });
-    }
-
-    if (amount > sender.daily_limit) {
-      return res.status(400).json({ ok: false, message: 'المبلغ يتجاوز الحد اليومي المسموح للحساب' });
-    }
-
-    const txRef = generateRef('TRF');
-    await runAsync('UPDATE users SET balance = balance - ? WHERE phone = ?', [amount, senderPhone]);
-    await runAsync('UPDATE users SET balance = balance + ? WHERE phone = ?', [amount, receiverPhone]);
-
+    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newSenderBal, senderPhone]);
+    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newReceiverBal, receiverPhone]);
     await runAsync(
-      `INSERT INTO transactions (reference, type, sender_phone, receiver_phone, amount, note)
-       VALUES (?, 'transfer', ?, ?, ?, ?)`,
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
+       VALUES (?, ?, ?, 'transfer', ?, ?)`,
       [txRef, senderPhone, receiverPhone, amount, note]
     );
 
-    await recordDoubleEntry(txRef, `WALLET:${receiverPhone}`, `WALLET:${senderPhone}`, amount);
-
-    const updatedSender = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
-      [senderPhone]
+    await createUserNotification(
+      senderPhone,
+      'إشعار تحويل صادر',
+      `تم تحويل مبلغ ${amount.toFixed(2)} ر.ي إلى ${receiver.full_name} (${receiverPhone}) — البيان: ${note} — رصيدك الحالي: ${newSenderBal.toFixed(2)} ر.ي`,
+      'transfer_out',
+      amount,
+      newSenderBal
     );
 
-    return res.json({ ok: true, reference: txRef, user: updatedSender });
+    await createUserNotification(
+      receiverPhone,
+      'إشعار استلام تحويل',
+      `وصلك تحويل بمبلغ ${amount.toFixed(2)} ر.ي من ${sender.full_name} (${senderPhone}) — البيان: ${note} — رصيدك الحالي: ${newReceiverBal.toFixed(2)} ر.ي`,
+      'transfer_in',
+      amount,
+      newReceiverBal
+    );
+
+    const summary = await buildUserSummary(senderPhone);
+    return res.json({
+      message: `تم تحويل ${amount.toFixed(2)} ر.ي بنجاح إلى ${receiver.full_name} (${receiverPhone}).`,
+      tx_ref: txRef,
+      ...summary,
+    });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'حدث خطأ أثناء تنفيذ التحويل' });
+    console.error('Transfer error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تنفيذ التحويل.' });
   }
 });
 
-// الدفع عبر نقطة بيع POS
-app.post('/api/pos-pay', async (req, res) => {
+// الدفع لنقطة بيع (POS)
+app.post('/api/pay-pos', async (req, res) => {
   try {
-    const payerPhone = normalizePhone(req.body.payerPhone);
-    const posCode = String(req.body.posCode || '').trim();
+    const payerPhone = normalizePhone(req.body.payer_phone);
+    const posCode = String(req.body.pos_code || '').trim().toUpperCase();
     const amount = Number(req.body.amount);
-    const note = String(req.body.note || 'مشتريات نقطة بيع').trim();
 
-    if (!payerPhone || !posCode || !Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ ok: false, message: 'يرجى إدخال رمز نقطة البيع والمبلغ بشكل صحيح' });
+    if (!payerPhone || !posCode) {
+      return res.status(400).json({ error: 'يرجى إدخال رقم الهاتف ورمز نقطة البيع POS.' });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح.' });
     }
 
-    const payer = await getAsync('SELECT * FROM users WHERE phone = ?', [payerPhone]);
-    const merchant = await getAsync('SELECT * FROM users WHERE pos_code = ?', [posCode]);
+    const payer = await getAsync(`SELECT * FROM users WHERE phone = ?`, [payerPhone]);
+    const merchant = await getAsync(`SELECT * FROM users WHERE UPPER(pos_code) = ?`, [posCode]);
 
-    if (!payer || !merchant) {
-      return res.status(404).json({ ok: false, message: 'رمز نقطة البيع أو حساب الدافع غير موجود' });
+    if (!payer) return res.status(404).json({ error: 'حساب الدافع غير موجود.' });
+    if (!merchant) return res.status(404).json({ error: 'رمز نقطة البيع POS غير صحيح.' });
+    if (payer.phone === merchant.phone) {
+      return res.status(400).json({ error: 'لا يمكنك الدفع لنقطة البيع الخاصة بحسابك.' });
+    }
+    if (Number(payer.balance) < amount) {
+      return res.status(400).json({ error: 'الرصيد غير كافٍ للدفع لنقطة البيع.' });
     }
 
-    if (payer.account_status !== 'active' || merchant.account_status !== 'active') {
-      return res.status(403).json({ ok: false, message: 'أحد الحسابين مجمّد' });
-    }
+    const newPayerBal = Number(payer.balance) - amount;
+    const newMerchantBal = Number(merchant.balance) + amount;
+    const txRef = `BRQ-POS-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
-    if (payer.balance < amount) {
-      return res.status(400).json({ ok: false, message: 'رصيد المحفظة غير كافٍ للدفع عبر POS' });
-    }
-
-    const txRef = generateRef('POS');
-    await runAsync('UPDATE users SET balance = balance - ? WHERE phone = ?', [amount, payerPhone]);
-    await runAsync('UPDATE users SET balance = balance + ? WHERE phone = ?', [amount, merchant.phone]);
-
+    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newPayerBal, payer.phone]);
+    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newMerchantBal, merchant.phone]);
     await runAsync(
-      `INSERT INTO transactions (reference, type, sender_phone, receiver_phone, pos_code, amount, note)
-       VALUES (?, 'pos_payment', ?, ?, ?, ?, ?)`,
-      [txRef, payerPhone, merchant.phone, posCode, amount, note]
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
+       VALUES (?, ?, ?, 'pos_payment', ?, ?)`,
+      [txRef, payer.phone, merchant.phone, amount, `دفع POS إلى ${merchant.full_name} (${posCode})`]
     );
 
-    await recordDoubleEntry(txRef, `POS:${posCode}`, `WALLET:${payerPhone}`, amount);
-
-    const updatedPayer = await getAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
-      [payerPhone]
+    await createUserNotification(
+      payer.phone,
+      'إشعار دفع POS',
+      `تم خصم مبلغ ${amount.toFixed(2)} ر.ي لصالح نقطة البيع ${posCode} (${merchant.full_name}) — رصيدك الحالي: ${newPayerBal.toFixed(2)} ر.ي`,
+      'pos_out',
+      amount,
+      newPayerBal
     );
 
-    return res.json({ ok: true, reference: txRef, user: updatedPayer });
+    await createUserNotification(
+      merchant.phone,
+      'إشعار مبيعات نقطة بيع POS',
+      `تم استلام دفعة POS بقيمة ${amount.toFixed(2)} ر.ي من ${payer.full_name} (${payer.phone}) عبر ${posCode} — رصيدك الحالي: ${newMerchantBal.toFixed(2)} ر.ي`,
+      'pos_in',
+      amount,
+      newMerchantBal
+    );
+
+    const summary = await buildUserSummary(payer.phone);
+    return res.json({
+      message: `تم الدفع بنجاح لنقطة البيع ${posCode} بمبلغ ${amount.toFixed(2)} ر.ي.`,
+      tx_ref: txRef,
+      ...summary,
+    });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'حدث خطأ أثناء إتمام الدفع عبر POS' });
+    console.error('POS payment error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء الدفع لنقطة البيع.' });
   }
 });
 
-// طلب التوثيق KYC من المستخدم
+// طلب توثيق KYC
 app.post('/api/kyc-request', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
-    const user = await getAsync('SELECT * FROM users WHERE phone = ?', [phone]);
-    if (!user) {
-      return res.status(404).json({ ok: false, message: 'الحساب غير موجود' });
-    }
+    const user = await getAsync(`SELECT * FROM users WHERE phone = ?`, [phone]);
+    if (!user) return res.status(404).json({ error: 'الحساب غير موجود.' });
 
-    if (user.kyc_status === 'verified') {
-      return res.json({ ok: true, kyc_status: 'verified', message: 'الحساب موثّق بالفعل' });
-    }
-
-    await runAsync("UPDATE users SET kyc_status = 'pending' WHERE phone = ?", [phone]);
-    return res.json({ ok: true, kyc_status: 'pending', message: 'تم إرسال طلب التوثيق KYC للمراجعة الإدارية' });
+    await runAsync(`UPDATE users SET kyc_status = 'verified' WHERE phone = ?`, [phone]);
+    await createUserNotification(
+      phone,
+      'تأكيد التوثيق KYC',
+      'تمت مراجعة وتوثيق حسابك في محفظة البرق بنجاح.',
+      'kyc',
+      0,
+      Number(user.balance)
+    );
+    const summary = await buildUserSummary(phone);
+    return res.json({ message: 'تم توثيق الحساب بنجاح.', ...summary });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر إرسال طلب التوثيق' });
+    return res.status(500).json({ error: 'تعذر تنفيذ طلب التوثيق.' });
   }
 });
 
-// لوحة الإدارة العليا: ملخص النظام
-app.get('/api/admin/overview', async (req, res) => {
+// بيانات لوحة الإدارة (رموز OTP المعلقة، العملاء، الإحصائيات، وتقرير العمليات الشامل)
+app.get('/api/admin/dashboard', async (req, res) => {
   try {
-    const adminPhone = normalizePhone(req.query.adminPhone || ADMIN_PHONE);
-    if (adminPhone !== ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'صلاحية الإدارة غير مخولة' });
+    const adminPhone = normalizePhone(req.query.admin_phone);
+    const adminUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    if (!isAdminUser(adminUser)) {
+      return res.status(403).json({ error: 'صلاحية الإدارة مطلوبة.' });
     }
 
-    const users = await allAsync(
-      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit, created_at FROM users ORDER BY id ASC'
+    const now = Date.now();
+    const pendingOtps = await allAsync(
+      `SELECT id, phone, full_name, purpose, code, expires_at, created_at
+       FROM customer_otp_challenges
+       WHERE used = 0 AND expires_at > ?
+       ORDER BY id DESC`,
+      [now]
     );
 
-    const transactions = await allAsync('SELECT * FROM transactions ORDER BY id DESC LIMIT 100');
+    const users = await allAsync(
+      `SELECT id, full_name, phone, role, balance, pos_code, kyc_status, is_active, created_at
+       FROM users
+       ORDER BY id DESC`
+    );
 
-    const totalUsers = users.length;
-    const totalBalances = users.reduce((sum, u) => sum + Number(u.balance || 0), 0);
-    const totalTransactions = transactions.length;
-    const vaultBalance = 100000000.0 - totalBalances;
+    const transactions = await allAsync(
+      `SELECT t.id, t.tx_ref, t.sender_phone, t.receiver_phone, t.tx_type, t.amount, t.note, t.created_at,
+              s.full_name AS sender_name, r.full_name AS receiver_name
+       FROM transactions t
+       LEFT JOIN users s ON t.sender_phone = s.phone
+       LEFT JOIN users r ON t.receiver_phone = r.phone
+       ORDER BY t.id DESC
+       LIMIT 250`
+    );
+
+    const treasuryUser = await getAsync(`SELECT balance FROM users WHERE phone = ?`, [normalizePhone(ADMIN_PHONE)]);
+    const customersBalanceSumRow = await getAsync(
+      `SELECT COALESCE(SUM(balance), 0) AS total FROM users WHERE phone != ?`,
+      [normalizePhone(ADMIN_PHONE)]
+    );
+    const totalAccountsRow = await getAsync(`SELECT COUNT(*) AS count FROM users`);
+    const totalTxRow = await getAsync(`SELECT COUNT(*) AS count FROM transactions`);
 
     return res.json({
-      ok: true,
-      stats: {
-        totalUsers,
-        totalBalances,
-        vaultBalance,
-        totalTransactions
-      },
+      pendingOtps: pendingOtps.map((item) => ({
+        ...item,
+        remainingSeconds: Math.max(0, Math.floor((Number(item.expires_at) - now) / 1000)),
+      })),
       users,
-      transactions
+      transactions,
+      stats: {
+        customersBalance: Number(customersBalanceSumRow?.total || 0),
+        totalAccounts: Number(totalAccountsRow?.count || 0),
+        totalTransactions: Number(totalTxRow?.count || 0),
+        treasuryBalance: Number(treasuryUser?.balance || 0),
+      },
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'خطأ في جلب بيانات لوحة الإدارة' });
+    console.error('Admin dashboard error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تحميل لوحة الإدارة.' });
   }
 });
 
-// لوحة الإدارة العليا: إيداع أو خصم/سحب إداري مع إشعار SMS بالرصيد المتبقي
+// الإيداع / الخصم الإداري وتغذية المحافظ مع إشعار فوري داخل محفظة العميل
 app.post('/api/admin/adjust-balance', async (req, res) => {
   try {
-    const adminPhone = normalizePhone(req.body.adminPhone || ADMIN_PHONE);
-    if (adminPhone !== ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'صلاحية الإدارة غير مخولة' });
-    }
-
-    const targetPhone = normalizePhone(req.body.targetPhone);
-    const operation = String(req.body.operation || 'deposit');
+    const adminPhone = normalizePhone(req.body.admin_phone);
+    const targetPhone = normalizePhone(req.body.target_phone);
+    const operation = String(req.body.operation || 'deposit').trim();
     const amount = Number(req.body.amount);
-    const reason = String(req.body.reason || 'تغذية رصيد / تسوية').trim();
+    const reason = String(req.body.reason || 'تغذية رصيد نقدي').trim();
 
-    if (!targetPhone || !Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ ok: false, message: 'يرجى إدخال رقم حساب صحيح ومبلغ أكبر من صفر' });
+    const adminUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    if (!isAdminUser(adminUser)) {
+      return res.status(403).json({ error: 'صلاحية الإدارة مطلوبة.' });
+    }
+    if (!targetPhone) {
+      return res.status(400).json({ error: 'يرجى إدخال رقم هاتف العميل.' });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح أكبر من صفر.' });
     }
 
-    const target = await getAsync('SELECT * FROM users WHERE phone = ?', [targetPhone]);
-    if (!target) {
-      return res.status(404).json({ ok: false, message: 'الحساب المستهدف غير موجود' });
+    const targetUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [targetPhone]);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'حساب العميل غير موجود.' });
     }
 
-    const txRef = generateRef('BRQ');
-    const isWithdraw = operation === 'withdraw';
+    const isDeposit = operation === 'deposit';
+    const isAdminAccount = normalizePhone(targetUser.phone) === normalizePhone(ADMIN_PHONE);
 
-    if (isWithdraw) {
-      if (target.balance < amount) {
-        return res.status(400).json({ ok: false, message: 'رصيد الحساب غير كافٍ للخصم / السحب الإداري' });
-      }
-      await runAsync('UPDATE users SET balance = balance - ? WHERE phone = ?', [amount, targetPhone]);
-      await runAsync(
-        `INSERT INTO transactions (reference, type, sender_phone, receiver_phone, amount, note)
-         VALUES (?, 'admin_adjust', ?, 'VAULT', ?, ?)`,
-        [txRef, targetPhone, amount, reason]
-      );
-      await recordDoubleEntry(txRef, 'VAULT:MAIN', `WALLET:${targetPhone}`, amount);
-    } else {
-      await runAsync('UPDATE users SET balance = balance + ? WHERE phone = ?', [amount, targetPhone]);
-      await runAsync(
-        `INSERT INTO transactions (reference, type, sender_phone, receiver_phone, amount, note)
-         VALUES (?, 'admin_adjust', 'VAULT', ?, ?, ?)`,
-        [txRef, targetPhone, amount, reason]
-      );
-      await recordDoubleEntry(txRef, `WALLET:${targetPhone}`, 'VAULT:MAIN', amount);
+    if (!isDeposit && Number(targetUser.balance) < amount) {
+      return res.status(400).json({ error: 'رصيد العميل غير كافٍ لتنفيذ الخصم.' });
     }
 
-    const updatedTarget = await getAsync('SELECT balance FROM users WHERE phone = ?', [targetPhone]);
-    const remainingBalance = Number(updatedTarget ? updatedTarget.balance : 0);
+    const newTargetBalance = isDeposit
+      ? Number(targetUser.balance) + amount
+      : Number(targetUser.balance) - amount;
 
-    const smsNotification = await sendBalanceSms(targetPhone, {
-      actionLabel: isWithdraw ? 'خصم / سحب إداري' : 'إيداع / إضافة رصيد',
+    if (!isAdminAccount) {
+      const currentTreasury = Number(adminUser.balance);
+      const newTreasuryBalance = isDeposit ? currentTreasury - amount : currentTreasury + amount;
+      await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newTreasuryBalance, adminUser.phone]);
+    }
+
+    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newTargetBalance, targetUser.phone]);
+
+    const txRef = `BRQ-${isDeposit ? 'DEP' : 'WDR'}-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    await runAsync(
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        txRef,
+        isDeposit ? adminUser.phone : targetUser.phone,
+        isDeposit ? targetUser.phone : adminUser.phone,
+        isDeposit ? 'admin_deposit' : 'admin_withdraw',
+        amount,
+        reason,
+      ]
+    );
+
+    const notifTitle = isDeposit ? 'إشعار إيداع رصيد' : 'إشعار خصم إداري';
+    const notifBody = isDeposit
+      ? `تم إيداع مبلغ ${amount.toFixed(2)} ر.ي في محفظتك (${reason}) — رصيدك الحالي: ${newTargetBalance.toFixed(2)} ر.ي`
+      : `تم خصم مبلغ ${amount.toFixed(2)} ر.ي من محفظتك (${reason}) — رصيدك الحالي: ${newTargetBalance.toFixed(2)} ر.ي`;
+
+    await createUserNotification(
+      targetUser.phone,
+      notifTitle,
+      notifBody,
+      isDeposit ? 'deposit' : 'withdraw',
       amount,
-      newBalance: remainingBalance,
-      reference: txRef,
-      reason
-    });
+      newTargetBalance
+    );
+
+    const smsMessage = `${SMS_SENDER_ID}: ${notifBody}`;
+    await sendNotification(targetUser.phone, smsMessage, 'admin_balance_adjustment');
 
     return res.json({
-      ok: true,
-      reference: txRef,
-      newBalance: remainingBalance,
-      smsSent: smsNotification.sent,
-      message: smsNotification.sent
-        ? `تم تنفيذ العملية وإرسال SMS — المبلغ: ${Number(amount).toFixed(2)} | الرصيد المتبقي: ${remainingBalance.toFixed(2)}`
-        : `تم تنفيذ العملية بنجاح — المبلغ: ${Number(amount).toFixed(2)} | الرصيد المتبقي: ${remainingBalance.toFixed(2)}`
+      message: `تم تنفيذ العملية وإرسال SMS — المبلغ: ${amount.toFixed(2)} | الرصيد المتبقي: ${newTargetBalance.toFixed(2)}`,
+      tx_ref: txRef,
+      balance: newTargetBalance,
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'حدث خطأ أثناء تعديل الرصيد' });
-  }
-});
-
-// لوحة الإدارة العليا: توثيق KYC أو تجميد/تنشيط حساب
-app.post('/api/admin/account-action', async (req, res) => {
-  try {
-    const adminPhone = normalizePhone(req.body.adminPhone || ADMIN_PHONE);
-    if (adminPhone !== ADMIN_PHONE) {
-      return res.status(403).json({ ok: false, message: 'صلاحية الإدارة غير مخولة' });
-    }
-
-    const targetPhone = normalizePhone(req.body.targetPhone);
-    const action = String(req.body.action || '');
-
-    const target = await getAsync('SELECT * FROM users WHERE phone = ?', [targetPhone]);
-    if (!target) {
-      return res.status(404).json({ ok: false, message: 'الحساب غير موجود' });
-    }
-
-    if (action === 'verify_kyc') {
-      await runAsync("UPDATE users SET kyc_status = 'verified', daily_limit = 500000.0 WHERE phone = ?", [targetPhone]);
-    } else if (action === 'toggle_freeze') {
-      const nextStatus = target.account_status === 'active' ? 'frozen' : 'active';
-      await runAsync('UPDATE users SET account_status = ? WHERE phone = ?', [nextStatus, targetPhone]);
-    } else {
-      return res.status(400).json({ ok: false, message: 'إجراء غير معروف' });
-    }
-
-    return res.json({ ok: true, message: 'تم تحديث حالة الحساب بنجاح' });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: 'تعذر تحديث حالة الحساب' });
+    console.error('Adjust balance error:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تنفيذ العملية الإدارية.' });
   }
 });
 
@@ -860,10 +799,10 @@ app.get('*', (req, res) => {
 initDatabase()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Al-Barq Wallet server running on port ${PORT}`);
+      console.log(`Al-Barq Wallet server running on port ${PORT} (SMS_PROVIDER=${SMS_PROVIDER}, SENDER=${SMS_SENDER_ID})`);
     });
   })
   .catch((err) => {
-    console.error('Database initialization failed:', err);
+    console.error('Failed to initialize DB:', err);
     process.exit(1);
   });
