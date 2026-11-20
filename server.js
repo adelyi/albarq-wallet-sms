@@ -2,7 +2,13 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
-const twilio = require('twilio');
+
+let twilio = null;
+try {
+  twilio = require('twilio');
+} catch (_) {
+  twilio = null;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +17,10 @@ const ADMIN_PHONE = String(process.env.ADMIN_PHONE || '783553915').trim();
 const ADMIN_DEFAULT_PASS = String(process.env.ADMIN_DEFAULT_PASS || 'Barq@2026');
 const DISABLE_OTP = String(process.env.DISABLE_OTP || '').toLowerCase() === 'true';
 const SEND_REGISTER_SMS = String(process.env.SEND_REGISTER_SMS || '').toLowerCase() === 'true';
+const REQUIRE_CUSTOMER_OTP = String(process.env.REQUIRE_CUSTOMER_OTP || 'true').toLowerCase() !== 'false';
+
+const SMS_PROVIDER = String(process.env.SMS_PROVIDER || 'console').trim().toLowerCase();
+const SMS_SENDER_ID = String(process.env.SMS_SENDER_ID || 'AlBarq').trim();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -70,109 +80,159 @@ function generateRef(prefix = 'BRQ') {
   return `${prefix}-${Date.now()}-${rand}`;
 }
 
-function getTwilioClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+async function createOrRefreshCustomerOtp(phone, fullName = '', purpose = 'register') {
+  const cleanPhone = normalizePhone(phone);
+  const code = generateOtpCode();
+  const expiresAt = Date.now() + 15 * 60 * 1000; // صلاحية 15 دقيقة
 
-  if (!accountSid || !authToken || !fromNumber) {
-    return null;
-  }
+  await runAsync(
+    `INSERT INTO customer_otp_challenges (phone, full_name, purpose, code, expires_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       full_name = COALESCE(NULLIF(excluded.full_name, ''), customer_otp_challenges.full_name),
+       purpose = excluded.purpose,
+       code = excluded.code,
+       expires_at = excluded.expires_at,
+       created_at = CURRENT_TIMESTAMP`,
+    [cleanPhone, String(fullName || '').trim(), purpose, code, expiresAt]
+  );
 
-  return {
-    client: twilio(accountSid, authToken),
-    fromNumber
-  };
+  console.log(`[CUSTOMER OTP FOR ADMIN REVIEW] Phone: ${cleanPhone} | Purpose: ${purpose} | Code: ${code}`);
+  return { phone: cleanPhone, code, expiresAt };
 }
 
-async function sendOtpViaTwilio(phone, otpCode) {
-  const tw = getTwilioClient();
-  if (!tw) {
-    return {
-      sent: false,
-      reason: 'MISSING_TWILIO_CONFIG',
-      message: 'تم توليد رمز التحقق (لم يتم ضبط إعدادات Twilio SMS بعد)'
-    };
+async function dispatchSms(toPhone, bodyText) {
+  const toNumber = formatPhoneE164(toPhone);
+
+  if (SMS_PROVIDER === 'console') {
+    console.log(`[SMS -> ${toNumber}] [Sender: ${SMS_SENDER_ID}]: ${bodyText}`);
+    return { sent: true, reason: 'CONSOLE_LOG' };
   }
 
-  try {
-    const toNumber = formatPhoneE164(phone);
-    await tw.client.messages.create({
-      body: `محفظة البرق: رمز التحقق المؤقت للدخول للإدارة هو ${otpCode}`,
-      from: tw.fromNumber,
+  if (SMS_PROVIDER === 'textbee') {
+    const apiKey = process.env.TEXTBEE_API_KEY;
+    const deviceId = process.env.TEXTBEE_DEVICE_ID;
+    if (!apiKey || !deviceId) {
+      return { sent: false, reason: 'MISSING_TEXTBEE_CONFIG' };
+    }
+    const res = await fetch(`https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/send-sms`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        recipients: [toNumber],
+        message: bodyText
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`TextBee failed (${res.status}): ${errText}`);
+    }
+    return { sent: true, reason: 'SENT' };
+  }
+
+  if (SMS_PROVIDER === 'custom_gateway') {
+    const gatewayUrl = process.env.SMS_GATEWAY_URL;
+    const apiKey = process.env.SMS_API_KEY;
+    if (!gatewayUrl) {
+      return { sent: false, reason: 'MISSING_GATEWAY_CONFIG' };
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const res = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        sender: SMS_SENDER_ID,
+        to: toNumber,
+        message: bodyText
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Custom gateway failed (${res.status}): ${errText}`);
+    }
+    return { sent: true, reason: 'SENT' };
+  }
+
+  if (SMS_PROVIDER === 'twilio') {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromValue = process.env.SMS_SENDER_ID || process.env.TWILIO_PHONE_NUMBER;
+    if (!twilio || !accountSid || !authToken || !fromValue) {
+      return { sent: false, reason: 'MISSING_TWILIO_CONFIG' };
+    }
+    const client = twilio(accountSid, authToken);
+    await client.messages.create({
+      body: bodyText,
+      from: fromValue,
       to: toNumber
     });
+    return { sent: true, reason: 'SENT' };
+  }
 
-    return {
-      sent: true,
-      reason: 'SENT',
-      message: `تم إرسال رمز التحقق OTP إلى الرقم ${toNumber} عبر SMS`
-    };
-  } catch (err) {
-    console.error('Twilio SMS error:', err.message);
+  return { sent: false, reason: 'UNKNOWN_PROVIDER' };
+}
+
+async function sendOtpViaSms(phone, otpCode) {
+  try {
+    const res = await dispatchSms(
+      phone,
+      `${SMS_SENDER_ID}: رمز التحقق المؤقت للدخول للإدارة هو ${otpCode}`
+    );
+    if (res.sent) {
+      return {
+        sent: true,
+        reason: res.reason,
+        message: `تم إرسال رمز التحقق OTP إلى الرقم ${formatPhoneE164(phone)}`
+      };
+    }
     return {
       sent: false,
-      reason: 'TWILIO_ERROR',
-      message: 'تعذر إرسال رسالة SMS عبر Twilio حالياً، تم توفير رمز احتياطي مؤقت'
+      reason: res.reason,
+      message: 'تم توليد رمز التحقق (لم يتم ضبط إعدادات بوابة الرسائل بعد)'
+    };
+  } catch (err) {
+    console.error('OTP SMS error:', err.message);
+    return {
+      sent: false,
+      reason: 'SMS_ERROR',
+      message: 'تعذر إرسال رسالة SMS حالياً، تم توفير رمز احتياطي مؤقت'
     };
   }
 }
 
 async function sendRegisterSms(phone, fullName, posCode) {
-  const tw = getTwilioClient();
-  if (!tw) return { sent: false };
-
   try {
-    const toNumber = formatPhoneE164(phone);
-    await tw.client.messages.create({
-      body: `مرحباً ${fullName} في محفظة البرق. تم إنشاء محفظتك بنجاح ورمز نقطة البيع الخاص بك هو: ${posCode}`,
-      from: tw.fromNumber,
-      to: toNumber
-    });
-    return { sent: true };
+    return await dispatchSms(
+      phone,
+      `${SMS_SENDER_ID}: مرحباً ${fullName} في محفظة البرق. تم إنشاء محفظتك بنجاح ورمز نقطة البيع الخاص بك هو: ${posCode}`
+    );
   } catch (err) {
-    console.error('Twilio register SMS error:', err.message);
+    console.error('Register SMS error:', err.message);
     return { sent: false };
   }
 }
 
 async function sendBalanceSms(phone, { actionLabel, amount, newBalance, reference, reason }) {
-  const tw = getTwilioClient();
-  if (!tw) {
-    return {
-      sent: false,
-      reason: 'MISSING_TWILIO_CONFIG'
-    };
-  }
-
   try {
-    const toNumber = formatPhoneE164(phone);
     const formattedAmount = Number(amount).toFixed(2);
     const formattedBalance = Number(newBalance).toFixed(2);
 
     const body =
-      `محفظة البرق (${reference})\n` +
+      `${SMS_SENDER_ID} (${reference})\n` +
       `العملية: ${actionLabel}\n` +
       `المبلغ: ${formattedAmount}\n` +
       `الرصيد المتبقي: ${formattedBalance}` +
       (reason ? `\nالبيان: ${reason}` : '');
 
-    await tw.client.messages.create({
-      body,
-      from: tw.fromNumber,
-      to: toNumber
-    });
-
-    return {
-      sent: true,
-      reason: 'SENT'
-    };
+    return await dispatchSms(phone, body);
   } catch (err) {
-    console.error('Twilio balance SMS error:', err.message);
-    return {
-      sent: false,
-      reason: 'TWILIO_ERROR'
-    };
+    console.error('Balance SMS error:', err.message);
+    return { sent: false, reason: 'SMS_ERROR' };
   }
 }
 
@@ -226,6 +286,17 @@ async function initDatabase() {
     )
   `);
 
+  await runAsync(`
+    CREATE TABLE IF NOT EXISTS customer_otp_challenges (
+      phone TEXT PRIMARY KEY,
+      full_name TEXT,
+      purpose TEXT NOT NULL DEFAULT 'register',
+      code TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   const existingAdmin = await getAsync('SELECT * FROM users WHERE phone = ?', [ADMIN_PHONE]);
   if (!existingAdmin) {
     await runAsync(
@@ -252,6 +323,95 @@ async function recordDoubleEntry(txRef, debitAccount, creditAccount, amount) {
   );
 }
 
+// طلب رمز OTP للعميل ليظهر للمسؤول الإداري ويرسله للمشارك
+app.post('/api/customer/request-otp', async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const fullName = String(req.body.fullName || '').trim();
+    const purpose = String(req.body.purpose || 'pwa_register').trim();
+
+    if (!phone || phone.length < 7) {
+      return res.status(400).json({ ok: false, message: 'يرجى إدخال رقم هاتف صحيح' });
+    }
+
+    const challenge = await createOrRefreshCustomerOtp(phone, fullName, purpose);
+
+    return res.json({
+      ok: true,
+      otpRequired: true,
+      deliveredByAdmin: true,
+      expiresAt: challenge.expiresAt,
+      message: 'تم إنشاء طلب رمز التحقق OTP وإرساله إلى المسؤول الإداري؛ تواصل مع الإدارة لاستلام الرمز وإدخاله.'
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: 'تعذر إنشاء طلب رمز التحقق' });
+  }
+});
+
+// تأكيد رمز OTP الخاص بالعميل وتفعيل الحساب
+app.post('/api/customer/verify-otp', async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const code = String(req.body.code || '').trim();
+
+    if (!phone || !code) {
+      return res.status(400).json({ ok: false, message: 'يرجى إدخال رقم الهاتف ورمز التحقق OTP' });
+    }
+
+    const challenge = await getAsync('SELECT * FROM customer_otp_challenges WHERE phone = ?', [phone]);
+    if (!challenge || challenge.code !== code || Date.now() > challenge.expires_at) {
+      return res.status(400).json({ ok: false, message: 'رمز التحقق OTP غير صحيح أو منتهي الصلاحية' });
+    }
+
+    await runAsync('DELETE FROM customer_otp_challenges WHERE phone = ?', [phone]);
+
+    const existingUser = await getAsync('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (existingUser) {
+      await runAsync("UPDATE users SET kyc_status = 'verified', account_status = 'active' WHERE phone = ?", [phone]);
+    }
+
+    const user = await getAsync(
+      'SELECT id, full_name, phone, role, balance, pos_code, kyc_status, account_status, daily_limit FROM users WHERE phone = ?',
+      [phone]
+    );
+
+    return res.json({
+      ok: true,
+      verified: true,
+      message: 'تم تأكيد رمز التحقق OTP بنجاح وتفعيل الحساب',
+      user: user || null
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: 'تعذر التحقق من رمز OTP للعميل' });
+  }
+});
+
+// عرض رموز OTP المعلقة للعملاء أمام المسؤول الإداري ليرسلها للمشاركين
+app.get('/api/admin/pending-otps', async (req, res) => {
+  try {
+    const adminPhone = normalizePhone(req.query.adminPhone || ADMIN_PHONE);
+    if (adminPhone !== ADMIN_PHONE) {
+      return res.status(403).json({ ok: false, message: 'صلاحية الإدارة غير مخولة' });
+    }
+
+    const now = Date.now();
+    await runAsync('DELETE FROM customer_otp_challenges WHERE expires_at < ?', [now]);
+
+    const pendingOtps = await allAsync(
+      `SELECT phone, full_name, purpose, code, expires_at, created_at
+       FROM customer_otp_challenges
+       ORDER BY created_at DESC`
+    );
+
+    return res.json({ ok: true, pendingOtps });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: 'خطأ في جلب رموز OTP المعلقة' });
+  }
+});
+
 // إنشاء حساب جديد (التسجيل)
 app.post('/api/register', async (req, res) => {
   try {
@@ -273,10 +433,12 @@ app.post('/api/register', async (req, res) => {
     }
 
     const posCode = `POS-${phone.slice(-6)}-${crypto.randomInt(10, 99)}`;
+    const initialKycStatus = REQUIRE_CUSTOMER_OTP ? 'pending_otp' : 'unverified';
+
     await runAsync(
       `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, account_status, daily_limit)
-       VALUES (?, ?, ?, 'user', 0.0, ?, 'unverified', 'active', 50000.0)`,
-      [fullName, phone, hashPassword(password), posCode]
+       VALUES (?, ?, ?, 'user', 0.0, ?, ?, 'active', 50000.0)`,
+      [fullName, phone, hashPassword(password), posCode, initialKycStatus]
     );
 
     const user = await getAsync(
@@ -284,20 +446,35 @@ app.post('/api/register', async (req, res) => {
       [phone]
     );
 
+    let otpPendingAdmin = false;
+    if (REQUIRE_CUSTOMER_OTP) {
+      await createOrRefreshCustomerOtp(phone, fullName, 'register');
+      otpPendingAdmin = true;
+    }
+
     let registerSmsSent = false;
     if (SEND_REGISTER_SMS) {
       const smsRes = await sendRegisterSms(phone, fullName, posCode);
       registerSmsSent = smsRes.sent;
     }
 
-    return res.json({ ok: true, user, registerSmsSent });
+    return res.json({
+      ok: true,
+      user,
+      otpRequired: REQUIRE_CUSTOMER_OTP,
+      otpPendingAdmin,
+      registerSmsSent,
+      message: REQUIRE_CUSTOMER_OTP
+        ? 'تم إنشاء الحساب؛ رمز OTP متاح لدى المسؤول الإداري لإرساله إليك وتأكيد التفعيل.'
+        : 'تم إنشاء المحفظة بنجاح'
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, message: 'حدث خطأ أثناء إنشاء المحفظة' });
   }
 });
 
-// تسجيل الدخول (مع إمكانية إيقاف OTP عبر DISABLE_OTP)
+// تسجيل الدخول (مع إمكانية إيقاف OTP للإدارة عبر DISABLE_OTP)
 app.post('/api/login', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
@@ -323,7 +500,7 @@ app.post('/api/login', async (req, res) => {
         [ADMIN_PHONE, otpCode, expiresAt]
       );
 
-      const smsResult = await sendOtpViaTwilio(ADMIN_PHONE, otpCode);
+      const smsResult = await sendOtpViaSms(ADMIN_PHONE, otpCode);
 
       return res.json({
         ok: true,
