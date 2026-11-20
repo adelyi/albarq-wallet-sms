@@ -2,274 +2,847 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>محفظة البرق — نظام المحفظة الإلكترونية ونقاط البيع POS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>محفظة البرق | Al-Barq Wallet</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
   <style>
     :root {
-      --bg: #0b0f17;
-      --card: #131a26;
-      --card-2: #192232;
-      --border: #27344a;
-      --text: #f3f6fb;
-      --muted: #9aa7bd;
-      --amber: #f59e0b;
-      --green: #10b981;
-      --red: #ef4444;
+      --bg: #0b1220;
+      --card: #131c31;
+      --card-2: #1a2540;
+      --primary: #f59e0b;
+      --primary-dark: #d97706;
+      --accent: #38bdf8;
+      --success: #10b981;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #26334d;
     }
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; }
+
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
+    }
+
     body {
       margin: 0;
-      padding: 16px;
-      background: var(--bg);
+      background: linear-gradient(180deg, #090f1c 0%, #0f172a 100%);
       color: var(--text);
-      line-height: 1.6;
+      min-height: 100vh;
+      padding-bottom: 40px;
     }
-    .container { max-width: 780px; margin: 0 auto; }
+
+    header {
+      background: rgba(19, 28, 49, 0.95);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(8px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--primary), #fbbf24);
+      color: #0b1220;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 20px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .brand span {
+      font-size: 12px;
+      color: var(--muted);
+      display: block;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 20px auto;
+      padding: 0 14px;
+    }
+
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: 16px;
       padding: 18px;
       margin-bottom: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
     }
-    .header-box { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .logo {
-      width: 44px; height: 44px; border-radius: 12px;
-      background: var(--amber); color: #111; display: grid; place-items: center;
-      font-size: 22px; font-weight: 800;
+
+    .card h2, .card h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 17px;
+      color: #fff;
     }
-    h1, h2, h3, h4 { margin: 0 0 8px; }
-    .muted { color: var(--muted); font-size: 13px; }
-    label { display: block; margin: 10px 0 6px; font-size: 14px; color: #dce4f2; }
-    input, select {
-      width: 100%;
-      padding: 12px;
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      flex: 1;
+      min-width: 110px;
+      padding: 10px 12px;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: var(--card-2);
-      color: var(--text);
-      font-size: 15px;
-    }
-    button {
-      width: 100%;
-      padding: 12px 16px;
-      border: none;
-      border-radius: 10px;
-      font-size: 15px;
+      color: var(--muted);
       font-weight: 700;
       cursor: pointer;
-      margin-top: 12px;
+      transition: 0.2s;
     }
-    .btn-amber { background: var(--amber); color: #111; }
-    .btn-green { background: var(--green); color: #062118; }
-    .btn-red { background: var(--red); color: #fff; }
-    .btn-dark { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
-    .btn-sm { width: auto; padding: 8px 12px; margin-top: 0; font-size: 13px; }
-    .notice {
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #0b1220;
+      border-color: var(--primary);
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0b1220;
+      color: var(--text);
+      font-size: 15px;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--primary);
+    }
+
+    .btn {
+      padding: 11px 16px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: 0.2s;
+    }
+
+    .btn-block {
+      width: 100%;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #0b1220;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #0b1220;
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #052e16;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    .alert {
       padding: 12px 14px;
       border-radius: 10px;
       margin-bottom: 14px;
-      border: 1px solid rgba(245, 158, 11, 0.45);
-      background: rgba(245, 158, 11, 0.12);
-      color: #fde68a;
       font-size: 14px;
-      white-space: pre-line;
+      line-height: 1.5;
+      display: none;
     }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-    .stat { background: var(--card-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
-    .stat .val { font-size: 20px; font-weight: 800; color: var(--amber); margin-top: 4px; }
-    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: right; }
-    .hidden { display: none; }
+
+    .alert.show {
+      display: block;
+    }
+
+    .alert-info {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #bae6fd;
+    }
+
+    .alert-success {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      color: #a7f3d0;
+    }
+
+    .alert-error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fecaca;
+    }
+
+    .alert-warn {
+      background: rgba(245, 158, 11, 0.16);
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      color: #fde68a;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-box {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .stat-box .label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stat-box .value {
+      font-size: 20px;
+      font-weight: 800;
+      margin-top: 6px;
+      color: var(--primary);
+    }
+
+    .balance-banner {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid var(--primary);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .balance-amount {
+      font-size: 30px;
+      font-weight: 900;
+      color: var(--primary);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .badge-verified {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .badge-pending {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fcd34d;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .badge-frozen {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .otp-code-pill {
+      font-family: monospace;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      background: #0b1220;
+      color: #fbbf24;
+      border: 1px dashed var(--primary);
+      padding: 5px 12px;
+      border-radius: 8px;
+      display: inline-block;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 700;
+      background: rgba(11, 18, 32, 0.5);
+    }
+
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
+  <header>
+    <div class="brand">
+      <div class="brand-logo">⚡</div>
+      <div>
+        <h1>محفظة البرق</h1>
+        <span>Al-Barq Digital Wallet</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="installPwaBtn" class="btn btn-accent btn-sm hidden">📲 تثبيت التطبيق</button>
+      <button id="logoutBtn" class="btn btn-outline btn-sm hidden">خروج</button>
+    </div>
+  </header>
+
   <div class="container">
-    <div class="card header-box">
-      <div class="brand">
-        <div class="logo">⚡</div>
-        <div>
-          <h1>محفظة البرق</h1>
-          <div class="muted">نظام المحفظة الإلكترونية ونقاط البيع POS</div>
-        </div>
-      </div>
-      <div id="sessionBadge" class="hidden">
-        <span id="sessionInfo" class="muted"></span>
-        <button class="btn-dark btn-sm" onclick="logout()">خروج</button>
-      </div>
-    </div>
+    <div id="globalAlert" class="alert"></div>
 
-    <div id="globalAlert" class="notice hidden"></div>
-
+    <!-- ==================== قسم المصادقة (دخول / تسجيل / تفعيل OTP) ==================== -->
     <div id="authSection">
-      <div class="card">
-        <h2>تسجيل الدخول</h2>
-        <div id="otpBox" class="hidden">
-          <div id="otpNotice" class="notice"></div>
-          <label>رمز التحقق OTP (6 أرقام)</label>
-          <input id="otpInput" type="text" maxlength="6" placeholder="أدخل رمز التحقق المرسل" />
-          <button class="btn-green" onclick="verifyOtp()">تأكيد OTP والدخول للإدارة</button>
-          <button class="btn-dark" onclick="cancelOtp()">إلغاء</button>
-        </div>
+      <div class="tabs">
+        <button class="tab-btn active" id="tabLoginBtn" onclick="switchAuthTab('login')">تسجيل الدخول</button>
+        <button class="tab-btn" id="tabRegisterBtn" onclick="switchAuthTab('register')">إنشاء محفظة جديدة</button>
+        <button class="tab-btn" id="tabCustomerOtpBtn" onclick="switchAuthTab('customerOtp')">تفعيل برمز OTP</button>
+      </div>
 
-        <div id="loginForm">
-          <label>رقم الهاتف</label>
-          <input id="loginPhone" type="text" placeholder="783553915" />
-          <label>كلمة المرور</label>
-          <input id="loginPass" type="password" placeholder="••••••••" />
-          <button class="btn-amber" onclick="login()">تسجيل الدخول</button>
+      <!-- نموذج تسجيل الدخول -->
+      <div id="loginBox" class="card">
+        <h2>تسجيل الدخول إلى المحفظة</h2>
+        <form onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label>رقم الهاتف</label>
+            <input type="tel" id="loginPhone" placeholder="مثال: 77xxxxxxx أو 783553915" required />
+          </div>
+          <div class="form-group">
+            <label>كلمة المرور</label>
+            <input type="password" id="loginPassword" placeholder="أدخل كلمة المرور" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">دخول</button>
+        </form>
+
+        <!-- حقل OTP الخاص بالإدارة عند تفعيله -->
+        <div id="adminOtpVerifyBox" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px;">
+          <h3>التحقق الأمني للإدارة (Admin OTP)</h3>
+          <div class="form-group">
+            <label>رمز التحقق المؤقت للإدارة</label>
+            <input type="text" id="adminOtpCode" maxlength="6" placeholder="أدخل الرمز المكون من 6 أرقام" />
+          </div>
+          <button type="button" class="btn btn-success btn-block" onclick="handleVerifyAdminOtp()">تأكيد دخول الإدارة</button>
         </div>
       </div>
 
-      <div class="card">
-        <h2>إنشاء حساب محفظة جديد</h2>
-        <label>الاسم الكامل</label>
-        <input id="regName" type="text" placeholder="الاسم الثلاثي" />
-        <label>رقم الهاتف</label>
-        <input id="regPhone" type="text" placeholder="77xxxxxxxx" />
-        <label>كلمة المرور</label>
-        <input id="regPass" type="password" placeholder="4 أحرف أو أكثر" />
-        <button class="btn-green" onclick="registerUser()">إنشاء المحفظة</button>
+      <!-- نموذج إنشاء محفظة جديدة -->
+      <div id="registerBox" class="card hidden">
+        <h2>فتح محفظة برق جديدة</h2>
+        <form onsubmit="handleRegister(event)">
+          <div class="form-group">
+            <label>الاسم الكامل</label>
+            <input type="text" id="regFullName" placeholder="الاسم الثلاثي أو التجاري" required />
+          </div>
+          <div class="form-group">
+            <label>رقم الهاتف</label>
+            <input type="tel" id="regPhone" placeholder="77xxxxxxx" required />
+          </div>
+          <div class="form-group">
+            <label>كلمة المرور</label>
+            <input type="password" id="regPassword" placeholder="4 أحرف أو أرقام على الأقل" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">إنشاء المحفظة وطلب رمز OTP</button>
+        </form>
+      </div>
+
+      <!-- نموذج إدخال وتفعيل OTP للعميل / المشارك -->
+      <div id="customerOtpBox" class="card hidden">
+        <h2>تفعيل الحساب عبر رمز التحقق (OTP)</h2>
+        <div class="alert alert-warn show">
+          عند فتح الرابط أو تثبيت التطبيق كـ <strong>PWA</strong> والتسجيل، يظهر رمز التحقق <strong>OTP</strong> لدى المسؤول الإداري للمحفظة، وسيقوم بإرساله إليك لإدخاله هنا وتفعيل حسابك.
+        </div>
+        <form onsubmit="handleVerifyCustomerOtp(event)">
+          <div class="form-group">
+            <label>رقم هاتفك المسجل</label>
+            <input type="tel" id="custOtpPhone" placeholder="أدخل رقم هاتفك" required />
+          </div>
+          <div class="form-group">
+            <label>رمز التحقق OTP (من الإدارة)</label>
+            <input type="text" id="custOtpCode" maxlength="6" placeholder="000000" style="text-align:center; font-size:20px; letter-spacing:4px;" required />
+          </div>
+          <div class="grid-2">
+            <button type="submit" class="btn btn-success btn-block">✅ تأكيد الرمز وتفعيل الحساب</button>
+            <button type="button" class="btn btn-outline btn-block" onclick="handleRequestCustomerOtp()">🔄 طلب / تجديد رمز OTP لدى الإدارة</button>
+          </div>
+        </form>
       </div>
     </div>
 
-    <div id="walletSection" class="hidden">
+    <!-- ==================== لوحة العميل ==================== -->
+    <div id="userDashboard" class="hidden">
+      <div id="userOtpNotice" class="alert alert-warn hidden">
+        حسابك بانتظار التفعيل برمز <strong>OTP</strong> من المسؤول الإداري. بعد استلام الرمز من الإدارة أدخله أدناه لتوثيق وتفعيل محفظتك:
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <input type="text" id="inlineCustOtpCode" maxlength="6" placeholder="أدخل رمز OTP" style="max-width:160px;" />
+          <button class="btn btn-success btn-sm" onclick="verifyInlineCustomerOtp()">تفعيل الآن</button>
+          <button class="btn btn-outline btn-sm" onclick="requestInlineCustomerOtp()">طلب الرمز مجدداً</button>
+        </div>
+      </div>
+
+      <div class="balance-banner">
+        <div>
+          <div style="font-size:13px; color:var(--muted);">مرحباً، <strong id="uName" style="color:#fff;"></strong> (<span id="uPhone"></span>)</div>
+          <div class="balance-amount"><span id="uBalance">0.00</span> <small style="font-size:14px;">ر.ي</small></div>
+          <div style="margin-top:6px; font-size:13px;">
+            رمز نقطة البيع POS: <strong id="uPosCode" style="color:var(--accent);"></strong>
+            &nbsp;|&nbsp;
+            الحالة: <span id="uKycBadge" class="badge badge-pending">غير موثق</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="refreshUserWallet()">🔄 تحديث</button>
+          <button class="btn btn-accent btn-sm" onclick="requestKyc()">🪪 طلب توثيق KYC</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- تحويل رصيد -->
+        <div class="card">
+          <h3>💸 تحويل رصيد برقم الهاتف</h3>
+          <form onsubmit="handleTransfer(event)">
+            <div class="form-group">
+              <label>رقم هاتف المستلم</label>
+              <input type="tel" id="trfReceiver" placeholder="77xxxxxxx" required />
+            </div>
+            <div class="form-group">
+              <label>المبلغ</label>
+              <input type="number" step="0.01" min="1" id="trfAmount" placeholder="0.00" required />
+            </div>
+            <div class="form-group">
+              <label>ملاحظة / البيان</label>
+              <input type="text" id="trfNote" placeholder="تحويل شخصي" />
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">إرسال التحويل</button>
+          </form>
+        </div>
+
+        <!-- الدفع عبر POS -->
+        <div class="card">
+          <h3>🏪 الدفع لنقطة بيع (POS)</h3>
+          <form onsubmit="handlePosPay(event)">
+            <div class="form-group">
+              <label>رمز نقطة البيع للتاجر</label>
+              <input type="text" id="posTargetCode" placeholder="POS-XXXXXX-XX" required />
+            </div>
+            <div class="form-group">
+              <label>المبلغ</label>
+              <input type="number" step="0.01" min="1" id="posAmount" placeholder="0.00" required />
+            </div>
+            <div class="form-group">
+              <label>البيان</label>
+              <input type="text" id="posNote" placeholder="مشتريات" />
+            </div>
+            <button type="submit" class="btn btn-accent btn-block">دفع عبر POS</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- سجل العمليات -->
       <div class="card">
-        <div class="stats-grid">
-          <div class="stat">
-            <div class="muted">رصيد المحفظة</div>
-            <div id="wBalance" class="val">0.00</div>
-          </div>
-          <div class="stat">
-            <div class="muted">رمز نقطة البيع POS</div>
-            <div id="wPos" class="val" style="font-size:16px;">—</div>
-          </div>
-          <div class="stat">
-            <div class="muted">حالة التوثيق KYC</div>
-            <div id="wKyc" class="val" style="font-size:16px;">—</div>
-          </div>
-          <div class="stat">
-            <div class="muted">الحد اليومي</div>
-            <div id="wLimit" class="val" style="font-size:16px;">—</div>
-          </div>
-        </div>
-
-        <div class="tabs" style="margin-top:16px;">
-          <button class="btn-amber btn-sm" onclick="showTab('opsTab')">تحويل ودفع POS</button>
-          <button class="btn-dark btn-sm" onclick="showTab('kycTab')">التوثيق KYC ونقطة البيع</button>
-          <button class="btn-dark btn-sm" onclick="showTab('historyTab')">سجل العمليات</button>
-          <button id="adminTabBtn" class="btn-dark btn-sm hidden" onclick="openAdminTab()">لوحة الإدارة العليا</button>
+        <h3>📜 سجل العمليات الأخيرة</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>المرجع</th>
+                <th>النوع</th>
+                <th>من</th>
+                <th>إلى</th>
+                <th>المبلغ</th>
+                <th>البيان</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
+            <tbody id="userTxBody"></tbody>
+          </table>
         </div>
       </div>
+    </div>
 
-      <div id="opsTab" class="card">
-        <h3>تحويل رصيد برقم الهاتف</h3>
-        <label>رقم هاتف المستلم</label>
-        <input id="trfReceiver" type="text" placeholder="7xxxxxxxx" />
-        <label>المبلغ</label>
-        <input id="trfAmount" type="number" step="0.01" placeholder="0.00" />
-        <label>ملاحظة</label>
-        <input id="trfNote" type="text" placeholder="تحويل محفظة البرق" />
-        <button class="btn-amber" onclick="sendTransfer()">إرسال التحويل</button>
-
-        <hr style="border-color:var(--border); margin:20px 0;" />
-
-        <h3>دفع عبر نقطة بيع POS</h3>
-        <label>رمز التاجر / نقطة البيع</label>
-        <input id="posCodeInput" type="text" placeholder="POS-ADMIN" />
-        <label>المبلغ</label>
-        <input id="posAmount" type="number" step="0.01" placeholder="0.00" />
-        <label>بيان الفاتورة</label>
-        <input id="posNote" type="text" placeholder="مشتريات نقطة بيع" />
-        <button class="btn-green" onclick="payPos()">إتمام الدفع POS</button>
-      </div>
-
-      <div id="kycTab" class="card hidden">
-        <h3>التوثيق KYC ونقطة البيع</h3>
-        <p class="muted">رمز نقطة البيع الخاص بحسابك: <strong id="kycPosCode"></strong></p>
-        <p class="muted">حالة التوثيق الحالية: <strong id="kycStatusText"></strong></p>
-        <button class="btn-green" onclick="requestKyc()">إرسال طلب توثيق KYC</button>
-      </div>
-
-      <div id="historyTab" class="card hidden">
-        <h3>سجل العمليات</h3>
-        <table>
-          <thead>
-            <tr><th>المرجع</th><th>النوع</th><th>المبلغ</th><th>البيان</th></tr>
-          </thead>
-          <tbody id="userTxBody"></tbody>
-        </table>
-      </div>
-
-      <div id="adminTab" class="card hidden">
-        <h3>لوحة الإدارة العليا</h3>
-        <div class="stats-grid" style="margin-bottom:16px;">
-          <div class="stat"><div class="muted">إجمالي المستخدمين</div><div id="admUsersCount" class="val">0</div></div>
-          <div class="stat"><div class="muted">إجمالي أرصدة المحافظ</div><div id="admBalancesSum" class="val">0.00</div></div>
-          <div class="stat"><div class="muted">رصيد الخزينة الرئيسية</div><div id="admVault" class="val">0.00</div></div>
-          <div class="stat"><div class="muted">عدد العمليات</div><div id="admTxCount" class="val">0</div></div>
+    <!-- ==================== لوحة المسؤول الإداري ==================== -->
+    <div id="adminDashboard" class="hidden">
+      <div class="card" style="border-color: var(--primary);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <h2 style="margin:0; color:var(--primary);">🔐 رموز OTP المعلقة للعملاء (لإرسالها للمشاركين)</h2>
+          <button class="btn btn-primary btn-sm" onclick="loadPendingOtps()">🔄 تحديث الرموز</button>
         </div>
+        <p style="font-size:13px; color:var(--muted); margin-top:0;">
+          عند تسجيل أي عميل عبر الرابط أو تطبيق PWA يتولد له رمز OTP هنا تلقائياً. انسخ الرمز وأرسله للعميل لإدخاله وتفعيل محفظته.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>اسم العميل</th>
+                <th>رقم الهاتف</th>
+                <th>الغرض</th>
+                <th>رمز OTP</th>
+                <th>ينتهي بعد</th>
+                <th>إجراء الإرسال</th>
+              </tr>
+            </thead>
+            <tbody id="pendingOtpsBody">
+              <tr><td colspan="6" style="text-align:center; color:var(--muted);">جاري التحميل...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-        <h4>تعديل رصيد حساب (إيداع / خصم إداري)</h4>
-        <label>رقم هاتف الحساب</label>
-        <input id="admTargetPhone" type="text" placeholder="رقم هاتف المستخدم أو الإدارة" />
-        <label>نوع العملية</label>
-        <select id="admOperation">
-          <option value="deposit">إيداع / إضافة رصيد</option>
-          <option value="withdraw">خصم / سحب إداري</option>
-        </select>
-        <label>المبلغ</label>
-        <input id="admAmount" type="number" step="0.01" placeholder="0.00" />
-        <label>سبب التسوية</label>
-        <input id="admReason" type="text" placeholder="تغذية رصيد / تسوية" />
-        <button class="btn-amber" onclick="adjustBalance()">تنفيذ تعديل الرصيد</button>
+      <div class="grid-4" style="margin-bottom:16px;">
+        <div class="stat-box">
+          <div class="label">إجمالي الحسابات</div>
+          <div class="value" id="statUsers">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">أرصدة العملاء</div>
+          <div class="value" id="statBalances">0.00</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">رصيد الخزينة</div>
+          <div class="value" id="statVault">0.00</div>
+        </div>
+        <div class="stat-box">
+          <div class="label">العمليات المسجلة</div>
+          <div class="value" id="statTx">0</div>
+        </div>
+      </div>
 
-        <h4 style="margin-top:20px;">إدارة الحسابات والتوثيق KYC</h4>
-        <table>
-          <thead>
-            <tr><th>الهاتف</th><th>الاسم</th><th>الرصيد</th><th>POS</th><th>KYC</th><th>الحالة</th><th>إجراء</th></tr>
-          </thead>
-          <tbody id="adminUsersBody"></tbody>
-        </table>
+      <!-- إيداع أو خصم إداري -->
+      <div class="card">
+        <h3>🏦 الإيداع / الخصم الإداري وتغذية المحافظ</h3>
+        <form onsubmit="handleAdminAdjust(event)" class="grid-2">
+          <div class="form-group">
+            <label>رقم هاتف العميل</label>
+            <input type="tel" id="adjPhone" placeholder="77xxxxxxx" required />
+          </div>
+          <div class="form-group">
+            <label>نوع العملية</label>
+            <select id="adjOperation">
+              <option value="deposit">إيداع / إضافة رصيد (+)</option>
+              <option value="withdraw">خصم / سحب إداري (-)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>المبلغ</label>
+            <input type="number" step="0.01" min="1" id="adjAmount" placeholder="0.00" required />
+          </div>
+          <div class="form-group">
+            <label>البيان / السبب</label>
+            <input type="text" id="adjReason" placeholder="تغذية رصيد نقدي" />
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <button type="submit" class="btn btn-primary btn-block">تنفيذ العملية الإدارية</button>
+          </div>
+        </form>
+      </div>
 
-        <h4 style="margin-top:20px;">مراقبة العمليات المباشرة</h4>
-        <table>
-          <thead>
-            <tr><th>المرجع</th><th>النوع</th><th>المبلغ</th><th>البيان</th></tr>
-          </thead>
-          <tbody id="adminTxBody"></tbody>
-        </table>
+      <!-- قائمة المستخدمين -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h3 style="margin:0;">👥 إدارة حسابات العملاء</h3>
+          <button class="btn btn-outline btn-sm" onclick="loadAdminOverview()">🔄 تحديث الكل</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>الاسم</th>
+                <th>الهاتف</th>
+                <th>الرصيد</th>
+                <th>POS</th>
+                <th>التوثيق</th>
+                <th>الحالة</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
     let currentUser = null;
-    let pendingAdminPhone = null;
+    let deferredPrompt = null;
 
-    function showAlert(msg) {
+    // تسجيل Service Worker لتشغيل PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+
+    // زر تثبيت التطبيق PWA
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById('installPwaBtn').classList.remove('hidden');
+    });
+
+    document.getElementById('installPwaBtn').addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      document.getElementById('installPwaBtn').classList.add('hidden');
+    });
+
+    function showAlert(msg, type = 'info') {
       const el = document.getElementById('globalAlert');
+      el.className = `alert show alert-${type}`;
       el.textContent = msg;
-      el.classList.remove('hidden');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function hideAlert() {
-      document.getElementById('globalAlert').classList.add('hidden');
+      document.getElementById('globalAlert').className = 'alert';
     }
 
-    function showTab(tabId) {
-      ['opsTab', 'kycTab', 'historyTab', 'adminTab'].forEach(id => {
-        document.getElementById(id).classList.add('hidden');
-      });
-      document.getElementById(tabId).classList.remove('hidden');
-    }
-
-    async function login() {
+    function switchAuthTab(tab) {
       hideAlert();
+      document.getElementById('loginBox').classList.toggle('hidden', tab !== 'login');
+      document.getElementById('registerBox').classList.toggle('hidden', tab !== 'register');
+      document.getElementById('customerOtpBox').classList.toggle('hidden', tab !== 'customerOtp');
+
+      document.getElementById('tabLoginBtn').classList.toggle('active', tab === 'login');
+      document.getElementById('tabRegisterBtn').classList.toggle('active', tab === 'register');
+      document.getElementById('tabCustomerOtpBtn').classList.toggle('active', tab === 'customerOtp');
+    }
+
+    function setLoggedInUser(user) {
+      currentUser = user;
+      localStorage.setItem('albarq_user', JSON.stringify(user));
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('logoutBtn').classList.remove('hidden');
+
+      if (user.role === 'admin') {
+        document.getElementById('userDashboard').classList.add('hidden');
+        document.getElementById('adminDashboard').classList.remove('hidden');
+        loadAdminOverview();
+        loadPendingOtps();
+      } else {
+        document.getElementById('adminDashboard').classList.add('hidden');
+        document.getElementById('userDashboard').classList.remove('hidden');
+        renderUserProfile(user);
+        refreshUserWallet();
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      currentUser = null;
+      localStorage.removeItem('albarq_user');
+      document.getElementById('userDashboard').classList.add('hidden');
+      document.getElementById('adminDashboard').classList.add('hidden');
+      document.getElementById('logoutBtn').classList.add('hidden');
+      document.getElementById('authSection').classList.remove('hidden');
+      hideAlert();
+    });
+
+    // 1) تسجيل حساب جديد مع إنشاء OTP يظهر للإدارة
+    async function handleRegister(e) {
+      e.preventDefault();
+      const fullName = document.getElementById('regFullName').value.trim();
+      const phone = document.getElementById('regPhone').value.trim();
+      const password = document.getElementById('regPassword').value;
+
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName, phone, password })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        return showAlert(data.message || 'تعذر إنشاء الحساب', 'error');
+      }
+
+      if (data.otpRequired) {
+        document.getElementById('custOtpPhone').value = phone;
+        switchAuthTab('customerOtp');
+        showAlert(data.message, 'warn');
+      } else {
+        showAlert('تم إنشاء المحفظة بنجاح', 'success');
+        setLoggedInUser(data.user);
+      }
+    }
+
+    // 2) طلب / تجديد رمز OTP للعميل ليرسله المسؤول الإداري
+    async function handleRequestCustomerOtp() {
+      const phone = document.getElementById('custOtpPhone').value.trim();
+      if (!phone) {
+        return showAlert('يرجى إدخال رقم الهاتف أولاً', 'error');
+      }
+
+      const res = await fetch('/api/customer/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, purpose: 'pwa_activation' })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        return showAlert(data.message, 'error');
+      }
+      showAlert(data.message, 'info');
+    }
+
+    // 3) تأكيد رمز OTP الذي أرسله المسؤول الإداري للعميل
+    async function handleVerifyCustomerOtp(e) {
+      e.preventDefault();
+      const phone = document.getElementById('custOtpPhone').value.trim();
+      const code = document.getElementById('custOtpCode').value.trim();
+
+      const res = await fetch('/api/customer/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        return showAlert(data.message || 'رمز التحقق غير صحيح', 'error');
+      }
+
+      showAlert(data.message, 'success');
+      if (data.user) {
+        setLoggedInUser(data.user);
+      } else {
+        switchAuthTab('login');
+        document.getElementById('loginPhone').value = phone;
+      }
+    }
+
+    // تفعيل OTP من داخل لوحة العميل إذا دخل قبل التفعيل
+    async function verifyInlineCustomerOtp() {
+      if (!currentUser) return;
+      const code = document.getElementById('inlineCustOtpCode').value.trim();
+      if (!code) return showAlert('أدخل رمز OTP أولاً', 'error');
+
+      const res = await fetch('/api/customer/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: currentUser.phone, code })
+      });
+      const data = await res.json();
+      if (!data.ok) return showAlert(data.message, 'error');
+
+      showAlert(data.message, 'success');
+      if (data.user) setLoggedInUser(data.user);
+    }
+
+    async function requestInlineCustomerOtp() {
+      if (!currentUser) return;
+      const res = await fetch('/api/customer/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: currentUser.phone, fullName: currentUser.full_name, purpose: 'pwa_verify' })
+      });
+      const data = await res.json();
+      showAlert(data.message, data.ok ? 'info' : 'error');
+    }
+
+    // تسجيل الدخول
+    async function handleLogin(e) {
+      e.preventDefault();
       const phone = document.getElementById('loginPhone').value.trim();
-      const password = document.getElementById('loginPass').value;
+      const password = document.getElementById('loginPassword').value;
 
       const res = await fetch('/api/login', {
         method: 'POST',
@@ -278,113 +851,99 @@
       });
       const data = await res.json();
 
-      if (!data.ok) return showAlert(data.message);
-
-      if (data.otpRequired) {
-        pendingAdminPhone = phone;
-        document.getElementById('loginForm').classList.add('hidden');
-        document.getElementById('otpBox').classList.remove('hidden');
-
-        let noticeText = data.message || 'تم إرسال رمز التحقق OTP';
-        if (data.fallbackOtp) {
-          noticeText += ` — رمز التحقق المؤقت: ${data.fallbackOtp}`;
-          document.getElementById('otpInput').value = data.fallbackOtp;
-        } else {
-          document.getElementById('otpInput').value = '';
-        }
-        document.getElementById('otpNotice').textContent = noticeText;
-        return;
+      if (!data.ok) {
+        return showAlert(data.message || 'فشل تسجيل الدخول', 'error');
       }
 
-      setSession(data.user);
+      if (data.otpRequired) {
+        document.getElementById('adminOtpVerifyBox').classList.remove('hidden');
+        if (data.fallbackOtp) {
+          document.getElementById('adminOtpCode').value = data.fallbackOtp;
+        }
+        return showAlert(data.message, 'info');
+      }
+
+      hideAlert();
+      setLoggedInUser(data.user);
     }
 
-    async function verifyOtp() {
-      hideAlert();
-      const code = document.getElementById('otpInput').value.trim();
+    async function handleVerifyAdminOtp() {
+      const phone = document.getElementById('loginPhone').value.trim();
+      const code = document.getElementById('adminOtpCode').value.trim();
+
       const res = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: pendingAdminPhone, code })
+        body: JSON.stringify({ phone, code })
       });
       const data = await res.json();
-      if (!data.ok) return showAlert(data.message);
 
-      document.getElementById('otpBox').classList.add('hidden');
-      document.getElementById('loginForm').classList.remove('hidden');
-      pendingAdminPhone = null;
-      setSession(data.user);
-    }
+      if (!data.ok) {
+        return showAlert(data.message || 'رمز الإدارة غير صحيح', 'error');
+      }
 
-    function cancelOtp() {
-      pendingAdminPhone = null;
-      document.getElementById('otpBox').classList.add('hidden');
-      document.getElementById('loginForm').classList.remove('hidden');
-    }
-
-    async function registerUser() {
       hideAlert();
-      const fullName = document.getElementById('regName').value.trim();
-      const phone = document.getElementById('regPhone').value.trim();
-      const password = document.getElementById('regPass').value;
-
-      const res = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, phone, password })
-      });
-      const data = await res.json();
-      if (!data.ok) return showAlert(data.message);
-      setSession(data.user);
+      setLoggedInUser(data.user);
     }
 
-    function setSession(user) {
-      currentUser = user;
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('walletSection').classList.remove('hidden');
-      document.getElementById('sessionBadge').classList.remove('hidden');
-      document.getElementById('sessionInfo').textContent = `${user.full_name} (${user.phone})`;
-      document.getElementById('adminTabBtn').classList.toggle('hidden', user.role !== 'admin');
-      refreshWallet();
+    // تحديث وعرض محفظة العميل
+    function renderUserProfile(user) {
+      document.getElementById('uName').textContent = user.full_name;
+      document.getElementById('uPhone').textContent = user.phone;
+      document.getElementById('uBalance').textContent = Number(user.balance || 0).toFixed(2);
+      document.getElementById('uPosCode').textContent = user.pos_code;
+
+      const badge = document.getElementById('uKycBadge');
+      const otpNotice = document.getElementById('userOtpNotice');
+
+      if (user.kyc_status === 'verified') {
+        badge.textContent = 'موثق ✓';
+        badge.className = 'badge badge-verified';
+        otpNotice.classList.add('hidden');
+      } else if (user.kyc_status === 'pending_otp') {
+        badge.textContent = 'بانتظار OTP الإدارة';
+        badge.className = 'badge badge-pending';
+        otpNotice.classList.remove('hidden');
+      } else {
+        badge.textContent = user.kyc_status === 'pending' ? 'قيد مراجعة التوثيق' : 'غير موثق';
+        badge.className = 'badge badge-pending';
+        otpNotice.classList.add('hidden');
+      }
     }
 
-    function logout() {
-      currentUser = null;
-      document.getElementById('walletSection').classList.add('hidden');
-      document.getElementById('sessionBadge').classList.add('hidden');
-      document.getElementById('authSection').classList.remove('hidden');
-      showTab('opsTab');
-    }
-
-    async function refreshWallet() {
+    async function refreshUserWallet() {
       if (!currentUser) return;
-      const res = await fetch(`/api/wallet/${currentUser.phone}`);
+      const res = await fetch(`/api/wallet/${encodeURIComponent(currentUser.phone)}`);
       const data = await res.json();
       if (!data.ok) return;
 
       currentUser = data.user;
-      document.getElementById('wBalance').textContent = Number(currentUser.balance).toFixed(2);
-      document.getElementById('wPos').textContent = currentUser.pos_code;
-      document.getElementById('wKyc').textContent = currentUser.kyc_status;
-      document.getElementById('wLimit').textContent = Number(currentUser.daily_limit).toLocaleString();
-      document.getElementById('kycPosCode').textContent = currentUser.pos_code;
-      document.getElementById('kycStatusText').textContent = currentUser.kyc_status;
+      localStorage.setItem('albarq_user', JSON.stringify(currentUser));
+      renderUserProfile(currentUser);
 
       const tbody = document.getElementById('userTxBody');
-      tbody.innerHTML = (data.transactions || []).map(tx => `
+      if (!data.transactions.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted);">لا توجد عمليات مسجلة بعد</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.transactions.map(tx => `
         <tr>
           <td>${tx.reference}</td>
           <td>${tx.type}</td>
-          <td>${Number(tx.amount).toFixed(2)}</td>
+          <td>${tx.sender_phone || '-'}</td>
+          <td>${tx.receiver_phone || '-'}</td>
+          <td style="font-weight:700; color:var(--primary);">${Number(tx.amount).toFixed(2)}</td>
           <td>${tx.note || ''}</td>
+          <td>${tx.created_at || ''}</td>
         </tr>
       `).join('');
     }
 
-    async function sendTransfer() {
-      hideAlert();
+    async function handleTransfer(e) {
+      e.preventDefault();
       const receiverPhone = document.getElementById('trfReceiver').value.trim();
-      const amount = document.getElementById('trfAmount').value;
+      const amount = Number(document.getElementById('trfAmount').value);
       const note = document.getElementById('trfNote').value.trim();
 
       const res = await fetch('/api/transfer', {
@@ -393,14 +952,17 @@
         body: JSON.stringify({ senderPhone: currentUser.phone, receiverPhone, amount, note })
       });
       const data = await res.json();
-      showAlert(data.ok ? `تم التحويل بنجاح — المرجع: ${data.reference}` : data.message);
-      if (data.ok) refreshWallet();
+      if (!data.ok) return showAlert(data.message, 'error');
+
+      showAlert(`تم التحويل بنجاح — المرجع: ${data.reference}`, 'success');
+      e.target.reset();
+      refreshUserWallet();
     }
 
-    async function payPos() {
-      hideAlert();
-      const posCode = document.getElementById('posCodeInput').value.trim();
-      const amount = document.getElementById('posAmount').value;
+    async function handlePosPay(e) {
+      e.preventDefault();
+      const posCode = document.getElementById('posTargetCode').value.trim();
+      const amount = Number(document.getElementById('posAmount').value);
       const note = document.getElementById('posNote').value.trim();
 
       const res = await fetch('/api/pos-pay', {
@@ -409,97 +971,151 @@
         body: JSON.stringify({ payerPhone: currentUser.phone, posCode, amount, note })
       });
       const data = await res.json();
-      showAlert(data.ok ? `تم الدفع عبر POS — المرجع: ${data.reference}` : data.message);
-      if (data.ok) refreshWallet();
+      if (!data.ok) return showAlert(data.message, 'error');
+
+      showAlert(`تم الدفع لنقطة البيع بنجاح — المرجع: ${data.reference}`, 'success');
+      e.target.reset();
+      refreshUserWallet();
     }
 
     async function requestKyc() {
-      hideAlert();
       const res = await fetch('/api/kyc-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: currentUser.phone })
       });
       const data = await res.json();
-      showAlert(data.message);
-      if (data.ok) refreshWallet();
+      showAlert(data.message, data.ok ? 'success' : 'error');
+      refreshUserWallet();
     }
 
-    async function openAdminTab() {
-      showTab('adminTab');
-      await loadAdminOverview();
+    // ==================== وظائف المسؤول الإداري ====================
+    async function loadPendingOtps() {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      const res = await fetch(`/api/admin/pending-otps?adminPhone=${encodeURIComponent(currentUser.phone)}`);
+      const data = await res.json();
+
+      const tbody = document.getElementById('pendingOtpsBody');
+      if (!data.ok || !data.pendingOtps || !data.pendingOtps.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted);">لا توجد رموز OTP معلقة حالياً</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.pendingOtps.map(item => {
+        const minsLeft = Math.max(0, Math.ceil((item.expires_at - Date.now()) / 60000));
+        const shareMsg = `محفظة البرق: رمز التحقق OTP الخاص بتفعيل حسابك (${item.phone}) هو: ${item.code}`;
+        return `
+          <tr>
+            <td><strong>${item.full_name || 'مشارك جديد'}</strong></td>
+            <td>${item.phone}</td>
+            <td>${item.purpose}</td>
+            <td><span class="otp-code-pill">${item.code}</span></td>
+            <td>${minsLeft} دقيقة</td>
+            <td>
+              <button class="btn btn-success btn-sm" onclick="copyOtpMessage('${item.code}', '${item.phone}')">📋 نسخ الرمز والرسالة</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function copyOtpMessage(code, phone) {
+      const text = `محفظة البرق: رمز التحقق OTP الخاص بك هو: ${code}`;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          showAlert(`تم نسخ رمز التحقق (${code}) للرقم ${phone} — يمكنك لصقه وإرساله للمشارك الآن.`, 'success');
+        });
+      } else {
+        showAlert(`رمز التحقق للرقم ${phone} هو: ${code}`, 'info');
+      }
     }
 
     async function loadAdminOverview() {
       if (!currentUser || currentUser.role !== 'admin') return;
-      const res = await fetch(`/api/admin/overview?adminPhone=${currentUser.phone}`);
+      const res = await fetch(`/api/admin/overview?adminPhone=${encodeURIComponent(currentUser.phone)}`);
       const data = await res.json();
-      if (!data.ok) return showAlert(data.message);
+      if (!data.ok) return showAlert(data.message, 'error');
 
-      document.getElementById('admUsersCount').textContent = data.stats.totalUsers;
-      document.getElementById('admBalancesSum').textContent = Number(data.stats.totalBalances).toFixed(2);
-      document.getElementById('admVault').textContent = Number(data.stats.vaultBalance).toFixed(2);
-      document.getElementById('admTxCount').textContent = data.stats.totalTransactions;
+      document.getElementById('statUsers').textContent = data.stats.totalUsers;
+      document.getElementById('statBalances').textContent = Number(data.stats.totalBalances).toFixed(2);
+      document.getElementById('statVault').textContent = Number(data.stats.vaultBalance).toFixed(2);
+      document.getElementById('statTx').textContent = data.stats.totalTransactions;
 
-      document.getElementById('adminUsersBody').innerHTML = (data.users || []).map(u => `
+      const tbody = document.getElementById('adminUsersBody');
+      tbody.innerHTML = data.users.map(u => `
         <tr>
-          <td>${u.phone}</td>
           <td>${u.full_name}</td>
-          <td>${Number(u.balance).toFixed(2)}</td>
+          <td>${u.phone}</td>
+          <td style="font-weight:700; color:var(--primary);">${Number(u.balance).toFixed(2)}</td>
           <td>${u.pos_code}</td>
-          <td>${u.kyc_status}</td>
-          <td>${u.account_status}</td>
           <td>
-            <button class="btn-green btn-sm" onclick="adminAction('${u.phone}', 'verify_kyc')">توثيق</button>
-            <button class="btn-red btn-sm" onclick="adminAction('${u.phone}', 'toggle_freeze')">تجميد/تنشيط</button>
+            <span class="badge ${u.kyc_status === 'verified' ? 'badge-verified' : 'badge-pending'}">
+              ${u.kyc_status}
+            </span>
           </td>
-        </tr>
-      `).join('');
-
-      document.getElementById('adminTxBody').innerHTML = (data.transactions || []).map(tx => `
-        <tr>
-          <td>${tx.reference}</td>
-          <td>${tx.type}</td>
-          <td>${Number(tx.amount).toFixed(2)}</td>
-          <td>${tx.note || ''}</td>
+          <td>
+            <span class="badge ${u.account_status === 'active' ? 'badge-verified' : 'badge-frozen'}">
+              ${u.account_status}
+            </span>
+          </td>
+          <td style="display:flex; gap:6px;">
+            <button class="btn btn-success btn-sm" onclick="adminAccountAction('${u.phone}', 'verify_kyc')">توثيق</button>
+            <button class="btn btn-danger btn-sm" onclick="adminAccountAction('${u.phone}', 'toggle_freeze')">تجميد/تنشيط</button>
+          </td>
         </tr>
       `).join('');
     }
 
-    async function adjustBalance() {
-      hideAlert();
-      const targetPhone = document.getElementById('admTargetPhone').value.trim();
-      const operation = document.getElementById('admOperation').value;
-      const amount = document.getElementById('admAmount').value;
-      const reason = document.getElementById('admReason').value.trim();
+    async function handleAdminAdjust(e) {
+      e.preventDefault();
+      const targetPhone = document.getElementById('adjPhone').value.trim();
+      const operation = document.getElementById('adjOperation').value;
+      const amount = Number(document.getElementById('adjAmount').value);
+      const reason = document.getElementById('adjReason').value.trim();
 
       const res = await fetch('/api/admin/adjust-balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPhone: currentUser.phone, targetPhone, operation, amount, reason })
+        body: JSON.stringify({
+          adminPhone: currentUser.phone,
+          targetPhone,
+          operation,
+          amount,
+          reason
+        })
       });
       const data = await res.json();
-      showAlert(data.message);
-      if (data.ok) {
-        refreshWallet();
-        loadAdminOverview();
-      }
+      if (!data.ok) return showAlert(data.message, 'error');
+
+      showAlert(data.message, 'success');
+      e.target.reset();
+      loadAdminOverview();
     }
 
-    async function adminAction(targetPhone, action) {
-      hideAlert();
+    async function adminAccountAction(targetPhone, action) {
       const res = await fetch('/api/admin/account-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPhone: currentUser.phone, targetPhone, action })
+        body: JSON.stringify({
+          adminPhone: currentUser.phone,
+          targetPhone,
+          action
+        })
       });
       const data = await res.json();
-      showAlert(data.message);
-      if (data.ok) {
-        refreshWallet();
-        loadAdminOverview();
-      }
+      showAlert(data.message, data.ok ? 'success' : 'error');
+      loadAdminOverview();
     }
+
+    // استعادة الجلسة عند إعادة فتح التطبيق أو PWA
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        const saved = localStorage.getItem('albarq_user');
+        if (saved) {
+          setLoggedInUser(JSON.parse(saved));
+        }
+      } catch (_) {}
+    });
   </script>
 </body>
 </html>
