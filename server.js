@@ -18,6 +18,18 @@ const SEND_REGISTER_SMS = String(process.env.SEND_REGISTER_SMS || 'false').toLow
 const SMS_PROVIDER = String(process.env.SMS_PROVIDER || 'console').toLowerCase();
 const SMS_SENDER_ID = process.env.SMS_SENDER_ID || 'AlBarq';
 
+const ALLOWED_CURRENCIES = ['YER', 'SAR', 'USD'];
+const CURRENCY_LABELS = {
+  YER: 'ر.ي',
+  SAR: 'ر.س',
+  USD: '$',
+};
+const CURRENCY_COL_MAP = {
+  YER: 'balance_yer',
+  SAR: 'balance_sar',
+  USD: 'balance_usd',
+};
+
 const useTurso = Boolean(TURSO_DATABASE_URL && TURSO_AUTH_TOKEN);
 const tursoClient = useTurso
   ? createClient({
@@ -30,6 +42,35 @@ const sqliteDb = useTurso ? null : new sqlite3.Database(DB_PATH);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+function normalizeCurrency(curr) {
+  const c = String(curr || 'YER').trim().toUpperCase();
+  return ALLOWED_CURRENCIES.includes(c) ? c : 'YER';
+}
+
+function getCurrencyCol(curr) {
+  return CURRENCY_COL_MAP[normalizeCurrency(curr)];
+}
+
+function getCurrencyLabel(curr) {
+  return CURRENCY_LABELS[normalizeCurrency(curr)];
+}
+
+/**
+ * حساب رسوم التحويل بين حسابات العملاء:
+ * - من 500 إلى 30000 => 200
+ * - من 30000.01 إلى 130000 => 500
+ * - كل زيادة 100000 بعد 130000 => +200 إضافية
+ */
+function calculateTransferFee(amount) {
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) return 0;
+  if (amt < 500) return 0;
+  if (amt <= 30000) return 200;
+  if (amt <= 130000) return 500;
+  const extraSteps = Math.ceil((amt - 130000) / 100000);
+  return 500 + extraSteps * 200;
+}
 
 function normalizePhone(phone) {
   let cleaned = String(phone || '').replace(/\D/g, '');
@@ -153,13 +194,66 @@ async function allAsync(sql, params = []) {
   });
 }
 
-async function createUserNotification(userPhone, title, message, txType = 'info', amount = 0, balanceAfter = null) {
+function hydrateUserBalances(user) {
+  if (!user) return null;
+  const yer = Number(user.balance_yer ?? user.balance ?? 0);
+  const sar = Number(user.balance_sar ?? 0);
+  const usd = Number(user.balance_usd ?? 0);
+  return {
+    ...user,
+    balance_yer: yer,
+    balance_sar: sar,
+    balance_usd: usd,
+    balance: yer,
+  };
+}
+
+async function ensureUserCurrencyColumns() {
+  const columns = await allAsync(`PRAGMA table_info(users)`);
+  const colNames = new Set(columns.map((c) => c.name));
+  if (!colNames.has('balance_yer')) {
+    await runAsync(`ALTER TABLE users ADD COLUMN balance_yer REAL DEFAULT 0`);
+    await runAsync(`UPDATE users SET balance_yer = COALESCE(balance, 0) WHERE balance_yer IS NULL`);
+  }
+  if (!colNames.has('balance_sar')) {
+    await runAsync(`ALTER TABLE users ADD COLUMN balance_sar REAL DEFAULT 0`);
+  }
+  if (!colNames.has('balance_usd')) {
+    await runAsync(`ALTER TABLE users ADD COLUMN balance_usd REAL DEFAULT 0`);
+  }
+
+  const txCols = await allAsync(`PRAGMA table_info(transactions)`);
+  const txColNames = new Set(txCols.map((c) => c.name));
+  if (!txColNames.has('currency')) {
+    await runAsync(`ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT 'YER'`);
+  }
+  if (!txColNames.has('fee_amount')) {
+    await runAsync(`ALTER TABLE transactions ADD COLUMN fee_amount REAL DEFAULT 0`);
+  }
+}
+
+async function createUserNotification(
+  userPhone,
+  title,
+  message,
+  txType = 'info',
+  amount = 0,
+  balanceAfter = null,
+  currency = 'YER'
+) {
   const phone = normalizePhone(userPhone);
   if (!phone) return;
   await runAsync(
     `INSERT INTO notifications (user_phone, title, message, tx_type, amount, balance_after, is_read)
      VALUES (?, ?, ?, ?, ?, ?, 0)`,
-    [phone, title, message, txType, Number(amount || 0), balanceAfter !== null ? Number(balanceAfter) : null]
+    [
+      phone,
+      title,
+      `${message} [${normalizeCurrency(currency)}]`,
+      txType,
+      Number(amount || 0),
+      balanceAfter !== null ? Number(balanceAfter) : null,
+    ]
   );
 }
 
@@ -172,6 +266,9 @@ async function initDatabase() {
       password_hash TEXT NOT NULL,
       role TEXT DEFAULT 'user',
       balance REAL DEFAULT 0,
+      balance_yer REAL DEFAULT 0,
+      balance_sar REAL DEFAULT 0,
+      balance_usd REAL DEFAULT 0,
       pos_code TEXT UNIQUE,
       kyc_status TEXT DEFAULT 'verified',
       is_active INTEGER DEFAULT 1,
@@ -187,6 +284,8 @@ async function initDatabase() {
       receiver_phone TEXT,
       tx_type TEXT NOT NULL,
       amount REAL NOT NULL,
+      fee_amount REAL DEFAULT 0,
+      currency TEXT DEFAULT 'YER',
       note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -233,16 +332,27 @@ async function initDatabase() {
     )
   `);
 
+  await ensureUserCurrencyColumns();
+
   const adminNorm = normalizePhone(ADMIN_PHONE);
   const existingAdmin = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminNorm]);
   if (!existingAdmin) {
     await runAsync(
-      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, is_active)
-       VALUES (?, ?, ?, 'admin', 100000000, 'POS-ADMIN', 'verified', 1)`,
+      `INSERT INTO users (full_name, phone, password_hash, role, balance, balance_yer, balance_sar, balance_usd, pos_code, kyc_status, is_active)
+       VALUES (?, ?, ?, 'admin', 100000000, 100000000, 5000000, 1000000, 'POS-ADMIN', 'verified', 1)`,
       ['إدارة محفظة البرق', adminNorm, hashPassword(ADMIN_DEFAULT_PASS)]
     );
-  } else if (existingAdmin.role !== 'admin') {
-    await runAsync(`UPDATE users SET role = 'admin', kyc_status = 'verified', is_active = 1 WHERE phone = ?`, [adminNorm]);
+  } else {
+    if (existingAdmin.role !== 'admin') {
+      await runAsync(`UPDATE users SET role = 'admin', kyc_status = 'verified', is_active = 1 WHERE phone = ?`, [adminNorm]);
+    }
+    const hydrated = hydrateUserBalances(existingAdmin);
+    if (Number(existingAdmin.balance_sar ?? 0) === 0 && Number(existingAdmin.balance_usd ?? 0) === 0) {
+      await runAsync(
+        `UPDATE users SET balance_yer = ?, balance_sar = 5000000, balance_usd = 1000000 WHERE phone = ?`,
+        [hydrated.balance_yer, adminNorm]
+      );
+    }
   }
 }
 
@@ -252,15 +362,16 @@ function isAdminUser(user) {
 
 async function buildUserSummary(phone) {
   const normPhone = normalizePhone(phone);
-  const user = await getAsync(
-    `SELECT id, full_name, phone, role, balance, pos_code, kyc_status, is_active, created_at
+  const rawUser = await getAsync(
+    `SELECT id, full_name, phone, role, balance, balance_yer, balance_sar, balance_usd, pos_code, kyc_status, is_active, created_at
      FROM users WHERE phone = ?`,
     [normPhone]
   );
-  if (!user) return null;
+  if (!rawUser) return null;
+  const user = hydrateUserBalances(rawUser);
 
   const transactions = await allAsync(
-    `SELECT id, tx_ref, sender_phone, receiver_phone, tx_type, amount, note, created_at
+    `SELECT id, tx_ref, sender_phone, receiver_phone, tx_type, amount, fee_amount, currency, note, created_at
      FROM transactions
      WHERE sender_phone = ? OR receiver_phone = ?
      ORDER BY id DESC
@@ -287,7 +398,6 @@ async function buildUserSummary(phone) {
   };
 }
 
-// تسجيل عميل جديد مع توليد رمز OTP للمشارك وإظهاره للإدارة
 app.post('/api/register', async (req, res) => {
   try {
     const fullName = String(req.body.full_name || '').trim();
@@ -342,7 +452,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// تفعيل حساب العميل عبر رمز OTP الذي يرسله المسؤول
 app.post('/api/verify-customer-otp', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
@@ -387,8 +496,8 @@ app.post('/api/verify-customer-otp', async (req, res) => {
     }
 
     await runAsync(
-      `INSERT INTO users (full_name, phone, password_hash, role, balance, pos_code, kyc_status, is_active)
-       VALUES (?, ?, ?, 'user', 0, ?, 'verified', 1)`,
+      `INSERT INTO users (full_name, phone, password_hash, role, balance, balance_yer, balance_sar, balance_usd, pos_code, kyc_status, is_active)
+       VALUES (?, ?, ?, 'user', 0, 0, 0, 0, ?, 'verified', 1)`,
       [fullName, phone, passwordHash, posCode]
     );
 
@@ -400,7 +509,8 @@ app.post('/api/verify-customer-otp', async (req, res) => {
       `تم تفعيل محفظتك بنجاح برقم ${phone} ورمز نقطة البيع ${posCode}. رصيدك الحالي: 0.00 ر.ي`,
       'welcome',
       0,
-      0
+      0,
+      'YER'
     );
 
     const summary = await buildUserSummary(phone);
@@ -414,7 +524,6 @@ app.post('/api/verify-customer-otp', async (req, res) => {
   }
 });
 
-// تسجيل الدخول (للإدارة والعملاء)
 app.post('/api/login', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
@@ -464,7 +573,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// تأكيد رمز OTP للإدارة
 app.post('/api/verify-admin-otp', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
@@ -493,7 +601,6 @@ app.post('/api/verify-admin-otp', async (req, res) => {
   }
 });
 
-// جلب بيانات المحفظة والعمليات والإشعارات
 app.get('/api/wallet/:phone', async (req, res) => {
   try {
     const phone = normalizePhone(req.params.phone);
@@ -508,7 +615,6 @@ app.get('/api/wallet/:phone', async (req, res) => {
   }
 });
 
-// تعليم الإشعارات كمقروءة
 app.post('/api/notifications/read', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
@@ -525,11 +631,12 @@ app.post('/api/notifications/read', async (req, res) => {
   }
 });
 
-// تحويل رصيد برقم الهاتف
+// تحويل رصيد بنفس العملة المستقلة مع حساب رسوم التحويل
 app.post('/api/transfer', async (req, res) => {
   try {
     const senderPhone = normalizePhone(req.body.sender_phone);
     const receiverPhone = normalizePhone(req.body.receiver_phone);
+    const currency = normalizeCurrency(req.body.currency);
     const amount = Number(req.body.amount);
     const note = String(req.body.note || 'تحويل رصيد').trim();
 
@@ -543,49 +650,97 @@ app.post('/api/transfer', async (req, res) => {
       return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح أكبر من صفر.' });
     }
 
-    const sender = await getAsync(`SELECT * FROM users WHERE phone = ?`, [senderPhone]);
-    const receiver = await getAsync(`SELECT * FROM users WHERE phone = ?`, [receiverPhone]);
+    const rawSender = await getAsync(`SELECT * FROM users WHERE phone = ?`, [senderPhone]);
+    const rawReceiver = await getAsync(`SELECT * FROM users WHERE phone = ?`, [receiverPhone]);
 
-    if (!sender) return res.status(404).json({ error: 'حساب المرسل غير موجود.' });
-    if (!receiver) return res.status(404).json({ error: 'رقم هاتف المستلم غير مسجل في محفظة البرق.' });
-    if (Number(sender.balance) < amount) {
-      return res.status(400).json({ error: 'الرصيد المتاح غير كافٍ لإتمام التحويل.' });
+    if (!rawSender) return res.status(404).json({ error: 'حساب المرسل غير موجود.' });
+    if (!rawReceiver) return res.status(404).json({ error: 'رقم هاتف المستلم غير مسجل في محفظة البرق.' });
+
+    const sender = hydrateUserBalances(rawSender);
+    const receiver = hydrateUserBalances(rawReceiver);
+    const col = getCurrencyCol(currency);
+    const label = getCurrencyLabel(currency);
+    const fee = currency === 'YER' ? calculateTransferFee(amount) : 0;
+    const totalDebit = amount + fee;
+
+    const senderCurrBal = Number(sender[col] || 0);
+    if (senderCurrBal < totalDebit) {
+      return res.status(400).json({
+        error: `الرصيد غير كافٍ في عملة ${currency}. المطلوب: ${totalDebit.toFixed(2)} ${label} (المبلغ ${amount.toFixed(2)} + رسوم ${fee.toFixed(2)}).`,
+      });
     }
 
-    const newSenderBal = Number(sender.balance) - amount;
-    const newReceiverBal = Number(receiver.balance) + amount;
+    const newSenderCurrBal = senderCurrBal - totalDebit;
+    const newReceiverCurrBal = Number(receiver[col] || 0) + amount;
     const txRef = `BRQ-TRF-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
-    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newSenderBal, senderPhone]);
-    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newReceiverBal, receiverPhone]);
+    if (currency === 'YER') {
+      await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+        newSenderCurrBal,
+        newSenderCurrBal,
+        senderPhone,
+      ]);
+      await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+        newReceiverCurrBal,
+        newReceiverCurrBal,
+        receiverPhone,
+      ]);
+    } else {
+      await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newSenderCurrBal, senderPhone]);
+      await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newReceiverCurrBal, receiverPhone]);
+    }
+
+    const adminNorm = normalizePhone(ADMIN_PHONE);
+    if (fee > 0 && senderPhone !== adminNorm && receiverPhone !== adminNorm) {
+      const rawAdmin = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminNorm]);
+      if (rawAdmin) {
+        const adminHydrated = hydrateUserBalances(rawAdmin);
+        const newAdminCurrBal = Number(adminHydrated[col] || 0) + fee;
+        if (currency === 'YER') {
+          await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+            newAdminCurrBal,
+            newAdminCurrBal,
+            adminNorm,
+          ]);
+        } else {
+          await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newAdminCurrBal, adminNorm]);
+        }
+      }
+    }
+
+    const combinedNote = fee > 0 ? `${note} (رسوم: ${fee.toFixed(2)} ${label})` : note;
     await runAsync(
-      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
-       VALUES (?, ?, ?, 'transfer', ?, ?)`,
-      [txRef, senderPhone, receiverPhone, amount, note]
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, fee_amount, currency, note)
+       VALUES (?, ?, ?, 'transfer', ?, ?, ?, ?)`,
+      [txRef, senderPhone, receiverPhone, amount, fee, currency, combinedNote]
     );
 
     await createUserNotification(
       senderPhone,
       'إشعار تحويل صادر',
-      `تم تحويل مبلغ ${amount.toFixed(2)} ر.ي إلى ${receiver.full_name} (${receiverPhone}) — البيان: ${note} — رصيدك الحالي: ${newSenderBal.toFixed(2)} ر.ي`,
+      `تم تحويل ${amount.toFixed(2)} ${label} إلى ${receiver.full_name} (${receiverPhone})${fee > 0 ? ` — الرسوم: ${fee.toFixed(2)} ${label}` : ''} — البيان: ${note} — رصيد ${currency} الحالي: ${newSenderCurrBal.toFixed(2)} ${label}`,
       'transfer_out',
       amount,
-      newSenderBal
+      newSenderCurrBal,
+      currency
     );
 
     await createUserNotification(
       receiverPhone,
       'إشعار استلام تحويل',
-      `وصلك تحويل بمبلغ ${amount.toFixed(2)} ر.ي من ${sender.full_name} (${senderPhone}) — البيان: ${note} — رصيدك الحالي: ${newReceiverBal.toFixed(2)} ر.ي`,
+      `وصلك تحويل بمبلغ ${amount.toFixed(2)} ${label} من ${sender.full_name} (${senderPhone}) — البيان: ${note} — رصيد ${currency} الحالي: ${newReceiverCurrBal.toFixed(2)} ${label}`,
       'transfer_in',
       amount,
-      newReceiverBal
+      newReceiverCurrBal,
+      currency
     );
 
     const summary = await buildUserSummary(senderPhone);
     return res.json({
-      message: `تم تحويل ${amount.toFixed(2)} ر.ي بنجاح إلى ${receiver.full_name} (${receiverPhone}).`,
+      message: `تم تحويل ${amount.toFixed(2)} ${label} بنجاح إلى ${receiver.full_name} (${receiverPhone})${fee > 0 ? ` — رسوم التحويل: ${fee.toFixed(2)} ${label}` : ''}.`,
       tx_ref: txRef,
+      fee,
+      currency,
       ...summary,
     });
   } catch (err) {
@@ -594,11 +749,12 @@ app.post('/api/transfer', async (req, res) => {
   }
 });
 
-// الدفع لنقطة بيع (POS)
+// الدفع لنقطة بيع (POS) بنفس العملة المستقلة
 app.post('/api/pay-pos', async (req, res) => {
   try {
     const payerPhone = normalizePhone(req.body.payer_phone);
     const posCode = String(req.body.pos_code || '').trim().toUpperCase();
+    const currency = normalizeCurrency(req.body.currency);
     const amount = Number(req.body.amount);
 
     if (!payerPhone || !posCode) {
@@ -608,51 +764,76 @@ app.post('/api/pay-pos', async (req, res) => {
       return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح.' });
     }
 
-    const payer = await getAsync(`SELECT * FROM users WHERE phone = ?`, [payerPhone]);
-    const merchant = await getAsync(`SELECT * FROM users WHERE UPPER(pos_code) = ?`, [posCode]);
+    const rawPayer = await getAsync(`SELECT * FROM users WHERE phone = ?`, [payerPhone]);
+    const rawMerchant = await getAsync(`SELECT * FROM users WHERE UPPER(pos_code) = ?`, [posCode]);
 
-    if (!payer) return res.status(404).json({ error: 'حساب الدافع غير موجود.' });
-    if (!merchant) return res.status(404).json({ error: 'رمز نقطة البيع POS غير صحيح.' });
+    if (!rawPayer) return res.status(404).json({ error: 'حساب الدافع غير موجود.' });
+    if (!rawMerchant) return res.status(404).json({ error: 'رمز نقطة البيع POS غير صحيح.' });
+
+    const payer = hydrateUserBalances(rawPayer);
+    const merchant = hydrateUserBalances(rawMerchant);
+
     if (payer.phone === merchant.phone) {
       return res.status(400).json({ error: 'لا يمكنك الدفع لنقطة البيع الخاصة بحسابك.' });
     }
-    if (Number(payer.balance) < amount) {
-      return res.status(400).json({ error: 'الرصيد غير كافٍ للدفع لنقطة البيع.' });
+
+    const col = getCurrencyCol(currency);
+    const label = getCurrencyLabel(currency);
+    const payerCurrBal = Number(payer[col] || 0);
+
+    if (payerCurrBal < amount) {
+      return res.status(400).json({ error: `الرصيد غير كافٍ في عملة ${currency} للدفع لنقطة البيع.` });
     }
 
-    const newPayerBal = Number(payer.balance) - amount;
-    const newMerchantBal = Number(merchant.balance) + amount;
+    const newPayerBal = payerCurrBal - amount;
+    const newMerchantBal = Number(merchant[col] || 0) + amount;
     const txRef = `BRQ-POS-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
-    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newPayerBal, payer.phone]);
-    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newMerchantBal, merchant.phone]);
+    if (currency === 'YER') {
+      await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+        newPayerBal,
+        newPayerBal,
+        payer.phone,
+      ]);
+      await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+        newMerchantBal,
+        newMerchantBal,
+        merchant.phone,
+      ]);
+    } else {
+      await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newPayerBal, payer.phone]);
+      await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newMerchantBal, merchant.phone]);
+    }
+
     await runAsync(
-      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
-       VALUES (?, ?, ?, 'pos_payment', ?, ?)`,
-      [txRef, payer.phone, merchant.phone, amount, `دفع POS إلى ${merchant.full_name} (${posCode})`]
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, fee_amount, currency, note)
+       VALUES (?, ?, ?, 'pos_payment', ?, 0, ?, ?)`,
+      [txRef, payer.phone, merchant.phone, amount, currency, `دفع POS إلى ${merchant.full_name} (${posCode})`]
     );
 
     await createUserNotification(
       payer.phone,
       'إشعار دفع POS',
-      `تم خصم مبلغ ${amount.toFixed(2)} ر.ي لصالح نقطة البيع ${posCode} (${merchant.full_name}) — رصيدك الحالي: ${newPayerBal.toFixed(2)} ر.ي`,
+      `تم خصم ${amount.toFixed(2)} ${label} لصالح نقطة البيع ${posCode} (${merchant.full_name}) — رصيد ${currency} الحالي: ${newPayerBal.toFixed(2)} ${label}`,
       'pos_out',
       amount,
-      newPayerBal
+      newPayerBal,
+      currency
     );
 
     await createUserNotification(
       merchant.phone,
       'إشعار مبيعات نقطة بيع POS',
-      `تم استلام دفعة POS بقيمة ${amount.toFixed(2)} ر.ي من ${payer.full_name} (${payer.phone}) عبر ${posCode} — رصيدك الحالي: ${newMerchantBal.toFixed(2)} ر.ي`,
+      `تم استلام دفعة POS بقيمة ${amount.toFixed(2)} ${label} من ${payer.full_name} (${payer.phone}) عبر ${posCode} — رصيد ${currency} الحالي: ${newMerchantBal.toFixed(2)} ${label}`,
       'pos_in',
       amount,
-      newMerchantBal
+      newMerchantBal,
+      currency
     );
 
     const summary = await buildUserSummary(payer.phone);
     return res.json({
-      message: `تم الدفع بنجاح لنقطة البيع ${posCode} بمبلغ ${amount.toFixed(2)} ر.ي.`,
+      message: `تم الدفع بنجاح لنقطة البيع ${posCode} بمبلغ ${amount.toFixed(2)} ${label}.`,
       tx_ref: txRef,
       ...summary,
     });
@@ -662,12 +843,12 @@ app.post('/api/pay-pos', async (req, res) => {
   }
 });
 
-// طلب توثيق KYC
 app.post('/api/kyc-request', async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
-    const user = await getAsync(`SELECT * FROM users WHERE phone = ?`, [phone]);
-    if (!user) return res.status(404).json({ error: 'الحساب غير موجود.' });
+    const rawUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [phone]);
+    if (!rawUser) return res.status(404).json({ error: 'الحساب غير موجود.' });
+    const user = hydrateUserBalances(rawUser);
 
     await runAsync(`UPDATE users SET kyc_status = 'verified' WHERE phone = ?`, [phone]);
     await createUserNotification(
@@ -676,7 +857,8 @@ app.post('/api/kyc-request', async (req, res) => {
       'تمت مراجعة وتوثيق حسابك في محفظة البرق بنجاح.',
       'kyc',
       0,
-      Number(user.balance)
+      Number(user.balance_yer),
+      'YER'
     );
     const summary = await buildUserSummary(phone);
     return res.json({ message: 'تم توثيق الحساب بنجاح.', ...summary });
@@ -685,11 +867,11 @@ app.post('/api/kyc-request', async (req, res) => {
   }
 });
 
-// بيانات لوحة الإدارة (رموز OTP المعلقة، العملاء، الإحصائيات، وتقرير العمليات الشامل)
 app.get('/api/admin/dashboard', async (req, res) => {
   try {
     const adminPhone = normalizePhone(req.query.admin_phone);
-    const adminUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    const rawAdmin = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    const adminUser = hydrateUserBalances(rawAdmin);
     if (!isAdminUser(adminUser)) {
       return res.status(403).json({ error: 'صلاحية الإدارة مطلوبة.' });
     }
@@ -703,14 +885,15 @@ app.get('/api/admin/dashboard', async (req, res) => {
       [now]
     );
 
-    const users = await allAsync(
-      `SELECT id, full_name, phone, role, balance, pos_code, kyc_status, is_active, created_at
+    const rawUsers = await allAsync(
+      `SELECT id, full_name, phone, role, balance, balance_yer, balance_sar, balance_usd, pos_code, kyc_status, is_active, created_at
        FROM users
        ORDER BY id DESC`
     );
+    const users = rawUsers.map(hydrateUserBalances);
 
     const transactions = await allAsync(
-      `SELECT t.id, t.tx_ref, t.sender_phone, t.receiver_phone, t.tx_type, t.amount, t.note, t.created_at,
+      `SELECT t.id, t.tx_ref, t.sender_phone, t.receiver_phone, t.tx_type, t.amount, t.fee_amount, t.currency, t.note, t.created_at,
               s.full_name AS sender_name, r.full_name AS receiver_name
        FROM transactions t
        LEFT JOIN users s ON t.sender_phone = s.phone
@@ -719,11 +902,20 @@ app.get('/api/admin/dashboard', async (req, res) => {
        LIMIT 250`
     );
 
-    const treasuryUser = await getAsync(`SELECT balance FROM users WHERE phone = ?`, [normalizePhone(ADMIN_PHONE)]);
-    const customersBalanceSumRow = await getAsync(
-      `SELECT COALESCE(SUM(balance), 0) AS total FROM users WHERE phone != ?`,
-      [normalizePhone(ADMIN_PHONE)]
-    );
+    const adminNorm = normalizePhone(ADMIN_PHONE);
+    const rawTreasury = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminNorm]);
+    const treasuryUser = hydrateUserBalances(rawTreasury);
+
+    const customersYer = users
+      .filter((u) => normalizePhone(u.phone) !== adminNorm)
+      .reduce((acc, u) => acc + Number(u.balance_yer || 0), 0);
+    const customersSar = users
+      .filter((u) => normalizePhone(u.phone) !== adminNorm)
+      .reduce((acc, u) => acc + Number(u.balance_sar || 0), 0);
+    const customersUsd = users
+      .filter((u) => normalizePhone(u.phone) !== adminNorm)
+      .reduce((acc, u) => acc + Number(u.balance_usd || 0), 0);
+
     const totalAccountsRow = await getAsync(`SELECT COUNT(*) AS count FROM users`);
     const totalTxRow = await getAsync(`SELECT COUNT(*) AS count FROM transactions`);
 
@@ -735,10 +927,16 @@ app.get('/api/admin/dashboard', async (req, res) => {
       users,
       transactions,
       stats: {
-        customersBalance: Number(customersBalanceSumRow?.total || 0),
+        customersBalance: Number(customersYer),
+        customersBalanceYer: Number(customersYer),
+        customersBalanceSar: Number(customersSar),
+        customersBalanceUsd: Number(customersUsd),
         totalAccounts: Number(totalAccountsRow?.count || 0),
         totalTransactions: Number(totalTxRow?.count || 0),
-        treasuryBalance: Number(treasuryUser?.balance || 0),
+        treasuryBalance: Number(treasuryUser?.balance_yer || 0),
+        treasuryBalanceYer: Number(treasuryUser?.balance_yer || 0),
+        treasuryBalanceSar: Number(treasuryUser?.balance_sar || 0),
+        treasuryBalanceUsd: Number(treasuryUser?.balance_usd || 0),
       },
     });
   } catch (err) {
@@ -747,16 +945,18 @@ app.get('/api/admin/dashboard', async (req, res) => {
   }
 });
 
-// الإيداع / الخصم الإداري وتغذية المحافظ مع إشعار فوري داخل محفظة العميل
+// الإيداع / الخصم الإداري لأي عملة مستقلة (YER / SAR / USD)
 app.post('/api/admin/adjust-balance', async (req, res) => {
   try {
     const adminPhone = normalizePhone(req.body.admin_phone);
     const targetPhone = normalizePhone(req.body.target_phone);
+    const currency = normalizeCurrency(req.body.currency);
     const operation = String(req.body.operation || 'deposit').trim();
     const amount = Number(req.body.amount);
     const reason = String(req.body.reason || 'تغذية رصيد نقدي').trim();
 
-    const adminUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    const rawAdmin = await getAsync(`SELECT * FROM users WHERE phone = ?`, [adminPhone]);
+    const adminUser = hydrateUserBalances(rawAdmin);
     if (!isAdminUser(adminUser)) {
       return res.status(403).json({ error: 'صلاحية الإدارة مطلوبة.' });
     }
@@ -767,48 +967,67 @@ app.post('/api/admin/adjust-balance', async (req, res) => {
       return res.status(400).json({ error: 'يرجى إدخال مبلغ صحيح أكبر من صفر.' });
     }
 
-    const targetUser = await getAsync(`SELECT * FROM users WHERE phone = ?`, [targetPhone]);
-    if (!targetUser) {
+    const rawTarget = await getAsync(`SELECT * FROM users WHERE phone = ?`, [targetPhone]);
+    if (!rawTarget) {
       return res.status(404).json({ error: 'حساب العميل غير موجود.' });
     }
+    const targetUser = hydrateUserBalances(rawTarget);
 
+    const col = getCurrencyCol(currency);
+    const label = getCurrencyLabel(currency);
     const isDeposit = operation === 'deposit';
     const isAdminAccount = normalizePhone(targetUser.phone) === normalizePhone(ADMIN_PHONE);
+    const currentTargetCurrBal = Number(targetUser[col] || 0);
 
-    if (!isDeposit && Number(targetUser.balance) < amount) {
-      return res.status(400).json({ error: 'رصيد العميل غير كافٍ لتنفيذ الخصم.' });
+    if (!isDeposit && currentTargetCurrBal < amount) {
+      return res.status(400).json({ error: `رصيد العميل في عملة ${currency} غير كافٍ لتنفيذ الخصم.` });
     }
 
-    const newTargetBalance = isDeposit
-      ? Number(targetUser.balance) + amount
-      : Number(targetUser.balance) - amount;
+    const newTargetCurrBal = isDeposit ? currentTargetCurrBal + amount : currentTargetCurrBal - amount;
 
     if (!isAdminAccount) {
-      const currentTreasury = Number(adminUser.balance);
-      const newTreasuryBalance = isDeposit ? currentTreasury - amount : currentTreasury + amount;
-      await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newTreasuryBalance, adminUser.phone]);
+      const currentTreasuryCurrBal = Number(adminUser[col] || 0);
+      const newTreasuryCurrBal = isDeposit ? currentTreasuryCurrBal - amount : currentTreasuryCurrBal + amount;
+      if (currency === 'YER') {
+        await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+          newTreasuryCurrBal,
+          newTreasuryCurrBal,
+          adminUser.phone,
+        ]);
+      } else {
+        await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newTreasuryCurrBal, adminUser.phone]);
+      }
     }
 
-    await runAsync(`UPDATE users SET balance = ? WHERE phone = ?`, [newTargetBalance, targetUser.phone]);
+    if (currency === 'YER') {
+      await runAsync(`UPDATE users SET balance_yer = ?, balance = ? WHERE phone = ?`, [
+        newTargetCurrBal,
+        newTargetCurrBal,
+        targetUser.phone,
+      ]);
+    } else {
+      await runAsync(`UPDATE users SET ${col} = ? WHERE phone = ?`, [newTargetCurrBal, targetUser.phone]);
+    }
 
     const txRef = `BRQ-${isDeposit ? 'DEP' : 'WDR'}-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     await runAsync(
-      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, note)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO transactions (tx_ref, sender_phone, receiver_phone, tx_type, amount, fee_amount, currency, note)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         txRef,
         isDeposit ? adminUser.phone : targetUser.phone,
         isDeposit ? targetUser.phone : adminUser.phone,
         isDeposit ? 'admin_deposit' : 'admin_withdraw',
         amount,
+        currency,
         reason,
       ]
     );
 
     const notifTitle = isDeposit ? 'إشعار إيداع رصيد' : 'إشعار خصم إداري';
     const notifBody = isDeposit
-      ? `تم إيداع مبلغ ${amount.toFixed(2)} ر.ي في محفظتك (${reason}) — رصيدك الحالي: ${newTargetBalance.toFixed(2)} ر.ي`
-      : `تم خصم مبلغ ${amount.toFixed(2)} ر.ي من محفظتك (${reason}) — رصيدك الحالي: ${newTargetBalance.toFixed(2)} ر.ي`;
+      ? `تم إيداع ${amount.toFixed(2)} ${label} في محفظتك (${reason}) — رصيد ${currency} الحالي: ${newTargetCurrBal.toFixed(2)} ${label}`
+      : `تم خصم ${amount.toFixed(2)} ${label} من محفظتك (${reason}) — رصيد ${currency} الحالي: ${newTargetCurrBal.toFixed(2)} ${label}`;
 
     await createUserNotification(
       targetUser.phone,
@@ -816,16 +1035,18 @@ app.post('/api/admin/adjust-balance', async (req, res) => {
       notifBody,
       isDeposit ? 'deposit' : 'withdraw',
       amount,
-      newTargetBalance
+      newTargetCurrBal,
+      currency
     );
 
     const smsMessage = `${SMS_SENDER_ID}: ${notifBody}`;
     await sendNotification(targetUser.phone, smsMessage, 'admin_balance_adjustment');
 
     return res.json({
-      message: `تم تنفيذ العملية وإرسال SMS — المبلغ: ${amount.toFixed(2)} | الرصيد المتبقي: ${newTargetBalance.toFixed(2)}`,
+      message: `تم تنفيذ العملية (${currency}) — المبلغ: ${amount.toFixed(2)} ${label} | الرصيد الحالي: ${newTargetCurrBal.toFixed(2)} ${label}`,
       tx_ref: txRef,
-      balance: newTargetBalance,
+      balance: newTargetCurrBal,
+      currency,
     });
   } catch (err) {
     console.error('Adjust balance error:', err);
