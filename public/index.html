@@ -226,7 +226,7 @@
       margin-bottom: 14px;
     }
 
-    /* أقسام الأرصدة المستقلة للعميل */
+    /* أقسام الأرصدة المستقلة بألوان ثابتة لكل عملة */
     .wallet-sections-nav {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -235,9 +235,6 @@
     }
 
     .wallet-sec-btn {
-      background: #0b1322;
-      color: var(--muted);
-      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 10px 6px;
       font-size: 12px;
@@ -245,17 +242,35 @@
       cursor: pointer;
       text-align: center;
       line-height: 1.35;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .wallet-sec-btn.sec-yer {
+      background: #f59e0b;
+      color: #09101d;
+      border: 2px solid #fbbf24;
+    }
+
+    .wallet-sec-btn.sec-sar {
+      background: rgba(248, 113, 113, 0.18);
+      color: #fca5a5;
+      border: 2px solid #f87171;
+    }
+
+    .wallet-sec-btn.sec-usd {
+      background: rgba(74, 222, 128, 0.18);
+      color: #86efac;
+      border: 2px solid #4ade80;
     }
 
     .wallet-sec-btn.active {
-      background: var(--amber);
-      color: #09101d;
-      border-color: var(--amber);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+      filter: brightness(1.08);
     }
 
     .currency-panel {
       background: rgba(11, 19, 34, 0.75);
-      border: 1px solid rgba(245, 158, 11, 0.25);
       border-radius: 14px;
       padding: 14px;
       margin-bottom: 12px;
@@ -270,8 +285,28 @@
     .balance-amount {
       font-size: 30px;
       font-weight: 800;
-      color: var(--amber);
       margin: 4px 0;
+    }
+
+    .panel-yer {
+      border: 1px solid rgba(245, 158, 11, 0.45);
+    }
+    .panel-yer .balance-amount {
+      color: #f59e0b;
+    }
+
+    .panel-sar {
+      border: 1px solid rgba(248, 113, 113, 0.45);
+    }
+    .panel-sar .balance-amount {
+      color: #f87171;
+    }
+
+    .panel-usd {
+      border: 1px solid rgba(74, 222, 128, 0.45);
+    }
+    .panel-usd .balance-amount {
+      color: #4ade80;
     }
 
     .fee-hint {
@@ -536,36 +571,36 @@
           </button>
         </div>
 
-        <!-- أقسام الأرصدة المستقلة للعميل -->
+        <!-- أقسام الأرصدة المستقلة بألوان ثابتة لكل عملة -->
         <div class="wallet-sections-nav">
-          <button id="secBtnYER" class="wallet-sec-btn active" onclick="selectCurrencySection('YER')">
+          <button id="secBtnYER" class="wallet-sec-btn sec-yer active" onclick="selectCurrencySection('YER')">
             رصيد يمني (YER)
-            <div id="tabSubYER" style="font-size:11px; opacity:0.9;">0.00 ر.ي</div>
+            <div id="tabSubYER" style="font-size:11px; opacity:0.95;">0.00 ر.ي</div>
           </button>
-          <button id="secBtnSAR" class="wallet-sec-btn" onclick="selectCurrencySection('SAR')">
+          <button id="secBtnSAR" class="wallet-sec-btn sec-sar" onclick="selectCurrencySection('SAR')">
             رصيد سعودي (SAR)
-            <div id="tabSubSAR" style="font-size:11px; opacity:0.9;">0.00 ر.س</div>
+            <div id="tabSubSAR" style="font-size:11px; opacity:0.95;">0.00 ر.س</div>
           </button>
-          <button id="secBtnUSD" class="wallet-sec-btn" onclick="selectCurrencySection('USD')">
+          <button id="secBtnUSD" class="wallet-sec-btn sec-usd" onclick="selectCurrencySection('USD')">
             رصيد دولار (USD)
-            <div id="tabSubUSD" style="font-size:11px; opacity:0.9;">0.00 $</div>
+            <div id="tabSubUSD" style="font-size:11px; opacity:0.95;">0.00 $</div>
           </button>
         </div>
 
         <!-- قسم الريال اليمني -->
-        <div id="panelYER" class="currency-panel">
+        <div id="panelYER" class="currency-panel panel-yer">
           <div class="currency-panel-title">قسم الرصيد المستقل — الريال اليمني (YER)</div>
           <div class="balance-amount"><span id="balValYER">0.00</span> <span style="font-size:16px;">ر.ي</span></div>
         </div>
 
         <!-- قسم الريال السعودي -->
-        <div id="panelSAR" class="currency-panel hidden">
+        <div id="panelSAR" class="currency-panel panel-sar hidden">
           <div class="currency-panel-title">قسم الرصيد المستقل — الريال السعودي (SAR)</div>
           <div class="balance-amount"><span id="balValSAR">0.00</span> <span style="font-size:16px;">ر.س</span></div>
         </div>
 
         <!-- قسم الدولار الأمريكي -->
-        <div id="panelUSD" class="currency-panel hidden">
+        <div id="panelUSD" class="currency-panel panel-usd hidden">
           <div class="currency-panel-title">قسم الرصيد المستقل — الدولار الأمريكي (USD)</div>
           <div class="balance-amount"><span id="balValUSD">0.00</span> <span style="font-size:16px;">$</span></div>
         </div>
