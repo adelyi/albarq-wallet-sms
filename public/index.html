@@ -226,6 +226,64 @@
       margin-bottom: 14px;
     }
 
+    .currency-switcher {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin: 10px 0 12px;
+    }
+
+    .curr-btn {
+      background: #0b1322;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 6px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .curr-btn.active {
+      background: rgba(245, 158, 11, 0.18);
+      color: var(--amber);
+      border-color: var(--amber);
+    }
+
+    .mini-balances {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .mini-bal-item {
+      background: rgba(11, 19, 34, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 7px 8px;
+    }
+
+    .mini-bal-item strong {
+      display: block;
+      color: var(--text);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .fee-hint {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px dashed rgba(245, 158, 11, 0.35);
+      border-radius: 10px;
+      padding: 9px 11px;
+      font-size: 12px;
+      color: #fde68a;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
     .balance-amount {
       font-size: 30px;
       font-weight: 800;
@@ -313,7 +371,7 @@
     }
 
     .stat-val {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 800;
       color: var(--amber);
       margin-top: 4px;
@@ -417,7 +475,6 @@
         <button id="tabOtpBtn" class="tab-btn" onclick="switchAuthTab('otp')">تفعيل برمز OTP</button>
       </div>
 
-      <!-- تسجيل الدخول -->
       <div id="loginCard" class="card">
         <h3 style="margin-top:0">تسجيل الدخول إلى المحفظة</h3>
         <div class="field">
@@ -440,7 +497,6 @@
         </div>
       </div>
 
-      <!-- إنشاء محفظة جديدة -->
       <div id="registerCard" class="card hidden">
         <h3 style="margin-top:0">إنشاء محفظة جديدة</h3>
         <div class="field">
@@ -458,7 +514,6 @@
         <button class="btn btn-primary" onclick="handleRegister()">إنشاء الحساب وطلب OTP</button>
       </div>
 
-      <!-- تفعيل برمز OTP -->
       <div id="otpCard" class="card hidden">
         <h3 style="margin-top:0">تفعيل المحفظة برمز OTP</h3>
         <div class="field">
@@ -475,7 +530,6 @@
 
     <!-- لوحة العميل / المشترك -->
     <div id="userDashboard" class="hidden">
-      <!-- بطاقة الرصيد وبيانات المشترك + زر الدخول لقسم الإشعارات -->
       <div class="balance-box">
         <div class="row-actions" style="justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
           <div style="font-size:15px; font-weight:700;">
@@ -486,7 +540,25 @@
             <span id="unreadBadge" class="count-pill hidden">0</span>
           </button>
         </div>
-        <div class="balance-amount"><span id="uBalance">0.00</span> <span style="font-size:16px;">ر.ي</span></div>
+
+        <!-- مبدّل العملات المستقلة -->
+        <div class="currency-switcher">
+          <button id="currBtnYER" class="curr-btn active" onclick="selectActiveCurrency('YER')">ريال يمني (YER)</button>
+          <button id="currBtnSAR" class="curr-btn" onclick="selectActiveCurrency('SAR')">سعودي (SAR)</button>
+          <button id="currBtnUSD" class="curr-btn" onclick="selectActiveCurrency('USD')">دولار (USD)</button>
+        </div>
+
+        <div class="balance-amount">
+          <span id="uActiveBalance">0.00</span>
+          <span id="uActiveLabel" style="font-size:16px;">ر.ي</span>
+        </div>
+
+        <div class="mini-balances">
+          <div class="mini-bal-item">رصيد يمني<strong id="miniBalYER">0.00 ر.ي</strong></div>
+          <div class="mini-bal-item">رصيد سعودي<strong id="miniBalSAR">0.00 ر.س</strong></div>
+          <div class="mini-bal-item">رصيد دولار<strong id="miniBalUSD">0.00 $</strong></div>
+        </div>
+
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
           رمز نقطة البيع POS: <strong id="uPos" style="color:var(--text)"></strong> |
           الحالة: <span id="uKyc" class="badge badge-green">موثق ✓</span>
@@ -497,7 +569,7 @@
         </div>
       </div>
 
-      <!-- قسم الإشعارات المستقل (يفتح عند الضغط على زر الإشعارات) -->
+      <!-- قسم الإشعارات المستقل -->
       <div id="userNotificationsCard" class="card hidden">
         <div class="row-actions" style="justify-content:space-between; margin-bottom:10px;">
           <h3 style="margin:0">🔔 الإشعارات</h3>
@@ -511,16 +583,22 @@
         </div>
       </div>
 
-      <!-- تحويل رصيد برقم الهاتف -->
+      <!-- تحويل رصيد برقم الهاتف بنفس العملة المستقلة -->
       <div class="card">
-        <h3 style="margin-top:0">💸 تحويل رصيد برقم الهاتف</h3>
+        <h3 style="margin-top:0">💸 تحويل رصيد برقم الهاتف (<span id="trfCurrBadge">YER</span>)</h3>
         <div class="field">
           <label>رقم هاتف المستلم</label>
           <input id="trfReceiver" type="tel" placeholder="77xxxxxxx" />
         </div>
         <div class="field">
           <label>المبلغ</label>
-          <input id="trfAmount" type="number" step="0.01" min="0.01" placeholder="0.00" />
+          <input id="trfAmount" type="number" step="0.01" min="0.01" placeholder="0.00" oninput="updateFeePreview()" />
+        </div>
+        <div id="feePreviewBox" class="fee-hint">
+          الرسوم المتوقعة: <strong>0.00</strong> | الإجمالي المخصوم من رصيد <span id="feeCurrLabel">YER</span>: <strong>0.00</strong>
+          <div style="color:var(--muted); margin-top:3px;">
+            شرائح التحويل (YER): 500–30,000 = 200 | 30,001–130,000 = 500 | كل +100,000 = +200
+          </div>
         </div>
         <div class="field">
           <label>ملاحظة / البيان</label>
@@ -529,9 +607,9 @@
         <button class="btn btn-primary" onclick="handleTransfer()">إرسال التحويل</button>
       </div>
 
-      <!-- الدفع لنقطة بيع POS -->
+      <!-- الدفع لنقطة بيع POS بنفس العملة المختارة -->
       <div class="card">
-        <h3 style="margin-top:0">🏪 الدفع لنقطة بيع (POS)</h3>
+        <h3 style="margin-top:0">🏪 الدفع لنقطة بيع (POS) — <span id="posCurrBadge">YER</span></h3>
         <div class="field">
           <label>رمز نقطة البيع للتاجر</label>
           <input id="posCodeInput" type="text" placeholder="POS-XXXXXX-XX" />
@@ -563,13 +641,14 @@
               <tr>
                 <th>النوع</th>
                 <th>المبلغ</th>
+                <th>الرسوم</th>
                 <th>الطرف / البيان</th>
                 <th>الرقم المرجعي</th>
                 <th>التاريخ</th>
               </tr>
             </thead>
             <tbody id="userTxBody">
-              <tr><td colspan="5" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة بعد</td></tr>
+              <tr><td colspan="6" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة بعد</td></tr>
             </tbody>
           </table>
         </div>
@@ -578,7 +657,6 @@
 
     <!-- لوحة الإدارة -->
     <div id="adminDashboard" class="hidden">
-      <!-- رموز OTP المعلقة للعملاء -->
       <div class="card">
         <div class="row-actions" style="justify-content:space-between; margin-bottom:8px;">
           <h3 style="margin:0">🔐 رموز OTP المعلقة للعملاء (لإرسالها للمشاركين)</h3>
@@ -606,10 +684,9 @@
         </div>
       </div>
 
-      <!-- الإحصاءات السريعة -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-label">أرصدة العملاء</div>
+          <div class="stat-label">أرصدة العملاء (YER / SAR / USD)</div>
           <div id="statCustomersBalance" class="stat-val">0.00</div>
         </div>
         <div class="stat-card">
@@ -621,17 +698,25 @@
           <div id="statTotalTx" class="stat-val">0</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">رصيد الخزينة</div>
+          <div class="stat-label">رصيد الخزينة (YER / SAR / USD)</div>
           <div id="statTreasury" class="stat-val">0.00</div>
         </div>
       </div>
 
-      <!-- الإيداع / الخصم الإداري وتغذية المحافظ -->
+      <!-- الإيداع / الخصم الإداري حسب العملة -->
       <div class="card">
         <h3 style="margin-top:0">🏦 الإيداع / الخصم الإداري وتغذية المحافظ</h3>
         <div class="field">
           <label>رقم هاتف العميل</label>
           <input id="admTargetPhone" type="tel" placeholder="77xxxxxxx" />
+        </div>
+        <div class="field">
+          <label>العملة المستقلة</label>
+          <select id="admCurrency">
+            <option value="YER">ريال يمني (YER)</option>
+            <option value="SAR">ريال سعودي (SAR)</option>
+            <option value="USD">دولار أمريكي (USD)</option>
+          </select>
         </div>
         <div class="field">
           <label>نوع العملية</label>
@@ -651,7 +736,6 @@
         <button class="btn btn-primary" onclick="handleAdminAdjustBalance()">تنفيذ العملية الإدارية</button>
       </div>
 
-      <!-- بند تقرير العمليات الشامل في لوحة الإدارة -->
       <div class="card" id="adminReportSection">
         <div class="row-actions" style="justify-content:space-between; margin-bottom:10px;">
           <h3 style="margin:0">📊 تقرير العمليات الشامل</h3>
@@ -673,6 +757,7 @@
               <tr>
                 <th>النوع</th>
                 <th>المبلغ</th>
+                <th>الرسوم</th>
                 <th>من / إلى</th>
                 <th>البيان</th>
                 <th>المرجع</th>
@@ -680,13 +765,12 @@
               </tr>
             </thead>
             <tbody id="adminTxBody">
-              <tr><td colspan="6" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة حالياً</td></tr>
+              <tr><td colspan="7" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة حالياً</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- إدارة حسابات العملاء -->
       <div class="card">
         <div class="row-actions" style="justify-content:space-between; margin-bottom:10px;">
           <h3 style="margin:0">👥 إدارة حسابات العملاء</h3>
@@ -698,9 +782,10 @@
               <tr>
                 <th>الاسم</th>
                 <th>الهاتف</th>
-                <th>الرصيد</th>
+                <th>يمني (YER)</th>
+                <th>سعودي (SAR)</th>
+                <th>دولار (USD)</th>
                 <th>POS</th>
-                <th>التوثيق</th>
                 <th>الحالة</th>
               </tr>
             </thead>
@@ -716,7 +801,65 @@
     let currentUserTx = [];
     let currentUserNotifs = [];
     let adminAllTx = [];
+    let activeCurrency = 'YER';
     let deferredPrompt = null;
+
+    const CURRENCY_SYMBOL = {
+      YER: 'ر.ي',
+      SAR: 'ر.س',
+      USD: '$',
+    };
+
+    function calcFeeClient(amount, curr) {
+      if (curr !== 'YER') return 0;
+      const amt = Number(amount);
+      if (!Number.isFinite(amt) || amt < 500) return 0;
+      if (amt <= 30000) return 200;
+      if (amt <= 130000) return 500;
+      const steps = Math.ceil((amt - 130000) / 100000);
+      return 500 + steps * 200;
+    }
+
+    function updateFeePreview() {
+      const amt = Number(document.getElementById('trfAmount')?.value || 0);
+      const fee = calcFeeClient(amt, activeCurrency);
+      const total = (Number.isFinite(amt) && amt > 0 ? amt : 0) + fee;
+      const sym = CURRENCY_SYMBOL[activeCurrency] || '';
+      const box = document.getElementById('feePreviewBox');
+      if (!box) return;
+      box.innerHTML = `
+        الرسوم المتوقعة: <strong>${fee.toFixed(2)} ${sym}</strong> | الإجمالي المخصوم من رصيد <strong>${activeCurrency}</strong>: <strong>${total.toFixed(2)} ${sym}</strong>
+        <div style="color:var(--muted); margin-top:3px;">
+          شرائح التحويل (YER): 500–30,000 = 200 | 30,001–130,000 = 500 | كل +100,000 = +200
+        </div>
+      `;
+    }
+
+    function selectActiveCurrency(curr) {
+      activeCurrency = ['YER', 'SAR', 'USD'].includes(curr) ? curr : 'YER';
+      document.getElementById('currBtnYER')?.classList.toggle('active', activeCurrency === 'YER');
+      document.getElementById('currBtnSAR')?.classList.toggle('active', activeCurrency === 'SAR');
+      document.getElementById('currBtnUSD')?.classList.toggle('active', activeCurrency === 'USD');
+      document.getElementById('trfCurrBadge').textContent = activeCurrency;
+      document.getElementById('posCurrBadge').textContent = activeCurrency;
+      renderActiveBalanceBox();
+      updateFeePreview();
+    }
+
+    function renderActiveBalanceBox() {
+      if (!currentUser) return;
+      const yer = Number(currentUser.balance_yer ?? currentUser.balance ?? 0);
+      const sar = Number(currentUser.balance_sar ?? 0);
+      const usd = Number(currentUser.balance_usd ?? 0);
+
+      document.getElementById('miniBalYER').textContent = `${yer.toFixed(2)} ر.ي`;
+      document.getElementById('miniBalSAR').textContent = `${sar.toFixed(2)} ر.س`;
+      document.getElementById('miniBalUSD').textContent = `${usd.toFixed(2)} $`;
+
+      const mapVal = { YER: yer, SAR: sar, USD: usd };
+      document.getElementById('uActiveBalance').textContent = Number(mapVal[activeCurrency] || 0).toFixed(2);
+      document.getElementById('uActiveLabel').textContent = CURRENCY_SYMBOL[activeCurrency] || activeCurrency;
+    }
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -913,7 +1056,6 @@
       if (!currentUser) return;
       document.getElementById('uName').textContent = currentUser.full_name;
       document.getElementById('uPhone').textContent = currentUser.phone;
-      document.getElementById('uBalance').textContent = Number(currentUser.balance || 0).toFixed(2);
       document.getElementById('uPos').textContent = currentUser.pos_code || '-';
 
       const kycEl = document.getElementById('uKyc');
@@ -925,6 +1067,7 @@
         kycEl.textContent = 'بانتظار التوثيق';
       }
 
+      selectActiveCurrency(activeCurrency);
       renderUserNotifications();
       renderUserTransactions();
     }
@@ -985,20 +1128,22 @@
         if (filter === 'incoming' && !isIncoming) return false;
         if (filter === 'outgoing' && isIncoming) return false;
         if (search) {
-          const hay = `${tx.tx_ref || ''} ${tx.sender_phone || ''} ${tx.receiver_phone || ''} ${tx.note || ''}`.toLowerCase();
+          const hay = `${tx.tx_ref || ''} ${tx.sender_phone || ''} ${tx.receiver_phone || ''} ${tx.currency || ''} ${tx.note || ''}`.toLowerCase();
           if (!hay.includes(search)) return false;
         }
         return true;
       });
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted)">لا توجد عمليات مطابقة</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted)">لا توجد عمليات مطابقة</td></tr>`;
         return;
       }
 
       tbody.innerHTML = rows
         .map((tx) => {
           const isIncoming = normalizePhoneClient(tx.receiver_phone) === myPhone;
+          const curr = tx.currency || 'YER';
+          const sym = CURRENCY_SYMBOL[curr] || curr;
           const labelMap = {
             admin_deposit: 'إيداع إداري',
             admin_withdraw: 'خصم إداري',
@@ -1008,11 +1153,13 @@
           const badgeClass = isIncoming ? 'badge-green' : 'badge-amber';
           const sign = isIncoming ? '+' : '-';
           const counterparty = isIncoming ? tx.sender_phone : tx.receiver_phone;
+          const feeVal = Number(tx.fee_amount || 0);
 
           return `
             <tr>
               <td><span class="badge ${badgeClass}">${labelMap[tx.tx_type] || tx.tx_type}</span></td>
-              <td style="font-weight:700; color:${isIncoming ? '#34d399' : '#fbbf24'}">${sign}${Number(tx.amount).toFixed(2)}</td>
+              <td style="font-weight:700; color:${isIncoming ? '#34d399' : '#fbbf24'}">${sign}${Number(tx.amount).toFixed(2)} ${sym}</td>
+              <td>${feeVal > 0 ? `${feeVal.toFixed(2)} ${sym}` : '-'}</td>
               <td>${escapeHtml(counterparty || '-')} — ${escapeHtml(tx.note || '')}</td>
               <td style="font-family:monospace">${escapeHtml(tx.tx_ref)}</td>
               <td>${formatDateAr(tx.created_at)}</td>
@@ -1034,6 +1181,7 @@
         body: JSON.stringify({
           sender_phone: currentUser.phone,
           receiver_phone,
+          currency: activeCurrency,
           amount,
           note,
         }),
@@ -1064,6 +1212,7 @@
         body: JSON.stringify({
           payer_phone: currentUser.phone,
           pos_code,
+          currency: activeCurrency,
           amount,
         }),
       });
@@ -1106,10 +1255,12 @@
         return;
       }
 
-      document.getElementById('statCustomersBalance').textContent = Number(data.stats.customersBalance || 0).toFixed(2);
+      document.getElementById('statCustomersBalance').textContent =
+        `${Number(data.stats.customersBalanceYer || 0).toFixed(0)} ر.ي | ${Number(data.stats.customersBalanceSar || 0).toFixed(0)} ر.س | ${Number(data.stats.customersBalanceUsd || 0).toFixed(0)} $`;
       document.getElementById('statTotalAccounts').textContent = data.stats.totalAccounts || 0;
       document.getElementById('statTotalTx').textContent = data.stats.totalTransactions || 0;
-      document.getElementById('statTreasury').textContent = Number(data.stats.treasuryBalance || 0).toFixed(2);
+      document.getElementById('statTreasury').textContent =
+        `${Number(data.stats.treasuryBalanceYer || 0).toFixed(0)} ر.ي | ${Number(data.stats.treasuryBalanceSar || 0).toFixed(0)} ر.س | ${Number(data.stats.treasuryBalanceUsd || 0).toFixed(0)} $`;
 
       const otpBody = document.getElementById('adminOtpBody');
       if (!data.pendingOtps || !data.pendingOtps.length) {
@@ -1148,9 +1299,10 @@
           <tr>
             <td>${escapeHtml(u.full_name)}</td>
             <td style="font-family:monospace">${escapeHtml(u.phone)}</td>
-            <td style="font-weight:700; color:var(--amber)">${Number(u.balance || 0).toFixed(2)}</td>
+            <td style="font-weight:700; color:var(--amber)">${Number(u.balance_yer ?? u.balance ?? 0).toFixed(2)}</td>
+            <td>${Number(u.balance_sar || 0).toFixed(2)}</td>
+            <td>${Number(u.balance_usd || 0).toFixed(2)}</td>
             <td style="font-family:monospace">${escapeHtml(u.pos_code || '-')}</td>
-            <td><span class="badge badge-green">${escapeHtml(u.kyc_status || 'verified')}</span></td>
             <td><span class="badge ${u.is_active ? 'badge-green' : 'badge-red'}">${u.is_active ? 'active' : 'inactive'}</span></td>
           </tr>
         `
@@ -1166,14 +1318,14 @@
       const rows = (adminAllTx || []).filter((tx) => {
         if (typeFilter !== 'all' && tx.tx_type !== typeFilter) return false;
         if (search) {
-          const hay = `${tx.tx_ref || ''} ${tx.sender_phone || ''} ${tx.receiver_phone || ''} ${tx.sender_name || ''} ${tx.receiver_name || ''} ${tx.note || ''}`.toLowerCase();
+          const hay = `${tx.tx_ref || ''} ${tx.sender_phone || ''} ${tx.receiver_phone || ''} ${tx.currency || ''} ${tx.note || ''}`.toLowerCase();
           if (!hay.includes(search)) return false;
         }
         return true;
       });
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة حالياً</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted)">لا توجد عمليات مسجلة حالياً</td></tr>`;
         return;
       }
 
@@ -1185,24 +1337,29 @@
       };
 
       tbody.innerHTML = rows
-        .map(
-          (tx) => `
-          <tr>
-            <td><span class="badge badge-blue">${typeLabels[tx.tx_type] || tx.tx_type}</span></td>
-            <td style="font-weight:700; color:var(--amber)">${Number(tx.amount).toFixed(2)}</td>
-            <td>${escapeHtml(tx.sender_phone || '-')} ← ${escapeHtml(tx.receiver_phone || '-')}</td>
-            <td>${escapeHtml(tx.note || '-')}</td>
-            <td style="font-family:monospace">${escapeHtml(tx.tx_ref)}</td>
-            <td>${formatDateAr(tx.created_at)}</td>
-          </tr>
-        `
-        )
+        .map((tx) => {
+          const curr = tx.currency || 'YER';
+          const sym = CURRENCY_SYMBOL[curr] || curr;
+          const feeVal = Number(tx.fee_amount || 0);
+          return `
+            <tr>
+              <td><span class="badge badge-blue">${typeLabels[tx.tx_type] || tx.tx_type}</span></td>
+              <td style="font-weight:700; color:var(--amber)">${Number(tx.amount).toFixed(2)} ${sym}</td>
+              <td>${feeVal > 0 ? `${feeVal.toFixed(2)} ${sym}` : '-'}</td>
+              <td>${escapeHtml(tx.sender_phone || '-')} ← ${escapeHtml(tx.receiver_phone || '-')}</td>
+              <td>${escapeHtml(tx.note || '-')}</td>
+              <td style="font-family:monospace">${escapeHtml(tx.tx_ref)}</td>
+              <td>${formatDateAr(tx.created_at)}</td>
+            </tr>
+          `;
+        })
         .join('');
     }
 
     async function handleAdminAdjustBalance() {
       hideAlert();
       const target_phone = document.getElementById('admTargetPhone').value.trim();
+      const currency = document.getElementById('admCurrency').value;
       const operation = document.getElementById('admOperation').value;
       const amount = document.getElementById('admAmount').value;
       const reason = document.getElementById('admReason').value.trim();
@@ -1213,6 +1370,7 @@
         body: JSON.stringify({
           admin_phone: currentUser.phone,
           target_phone,
+          currency,
           operation,
           amount,
           reason,
