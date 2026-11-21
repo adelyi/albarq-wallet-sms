@@ -226,51 +226,52 @@
       margin-bottom: 14px;
     }
 
-    .currency-switcher {
+    /* أقسام الأرصدة المستقلة للعميل */
+    .wallet-sections-nav {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
-      margin: 10px 0 12px;
+      gap: 8px;
+      margin: 12px 0;
     }
 
-    .curr-btn {
+    .wallet-sec-btn {
       background: #0b1322;
       color: var(--muted);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 8px 6px;
+      border-radius: 12px;
+      padding: 10px 6px;
       font-size: 12px;
       font-weight: 800;
       cursor: pointer;
+      text-align: center;
+      line-height: 1.35;
     }
 
-    .curr-btn.active {
-      background: rgba(245, 158, 11, 0.18);
-      color: var(--amber);
+    .wallet-sec-btn.active {
+      background: var(--amber);
+      color: #09101d;
       border-color: var(--amber);
     }
 
-    .mini-balances {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
+    .currency-panel {
+      background: rgba(11, 19, 34, 0.75);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 14px;
+      padding: 14px;
       margin-bottom: 12px;
-      font-size: 11px;
-      color: var(--muted);
     }
 
-    .mini-bal-item {
-      background: rgba(11, 19, 34, 0.7);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 7px 8px;
-    }
-
-    .mini-bal-item strong {
-      display: block;
-      color: var(--text);
+    .currency-panel-title {
       font-size: 12px;
-      margin-top: 2px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .balance-amount {
+      font-size: 30px;
+      font-weight: 800;
+      color: var(--amber);
+      margin: 4px 0;
     }
 
     .fee-hint {
@@ -282,13 +283,6 @@
       color: #fde68a;
       margin-bottom: 12px;
       line-height: 1.5;
-    }
-
-    .balance-amount {
-      font-size: 30px;
-      font-weight: 800;
-      color: var(--amber);
-      margin: 6px 0;
     }
 
     .badge {
@@ -371,10 +365,11 @@
     }
 
     .stat-val {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 800;
       color: var(--amber);
       margin-top: 4px;
+      line-height: 1.4;
     }
 
     .table-wrap {
@@ -541,22 +536,38 @@
           </button>
         </div>
 
-        <!-- مبدّل العملات المستقلة -->
-        <div class="currency-switcher">
-          <button id="currBtnYER" class="curr-btn active" onclick="selectActiveCurrency('YER')">ريال يمني (YER)</button>
-          <button id="currBtnSAR" class="curr-btn" onclick="selectActiveCurrency('SAR')">سعودي (SAR)</button>
-          <button id="currBtnUSD" class="curr-btn" onclick="selectActiveCurrency('USD')">دولار (USD)</button>
+        <!-- أقسام الأرصدة المستقلة للعميل -->
+        <div class="wallet-sections-nav">
+          <button id="secBtnYER" class="wallet-sec-btn active" onclick="selectCurrencySection('YER')">
+            رصيد يمني (YER)
+            <div id="tabSubYER" style="font-size:11px; opacity:0.9;">0.00 ر.ي</div>
+          </button>
+          <button id="secBtnSAR" class="wallet-sec-btn" onclick="selectCurrencySection('SAR')">
+            رصيد سعودي (SAR)
+            <div id="tabSubSAR" style="font-size:11px; opacity:0.9;">0.00 ر.س</div>
+          </button>
+          <button id="secBtnUSD" class="wallet-sec-btn" onclick="selectCurrencySection('USD')">
+            رصيد دولار (USD)
+            <div id="tabSubUSD" style="font-size:11px; opacity:0.9;">0.00 $</div>
+          </button>
         </div>
 
-        <div class="balance-amount">
-          <span id="uActiveBalance">0.00</span>
-          <span id="uActiveLabel" style="font-size:16px;">ر.ي</span>
+        <!-- قسم الريال اليمني -->
+        <div id="panelYER" class="currency-panel">
+          <div class="currency-panel-title">قسم الرصيد المستقل — الريال اليمني (YER)</div>
+          <div class="balance-amount"><span id="balValYER">0.00</span> <span style="font-size:16px;">ر.ي</span></div>
         </div>
 
-        <div class="mini-balances">
-          <div class="mini-bal-item">رصيد يمني<strong id="miniBalYER">0.00 ر.ي</strong></div>
-          <div class="mini-bal-item">رصيد سعودي<strong id="miniBalSAR">0.00 ر.س</strong></div>
-          <div class="mini-bal-item">رصيد دولار<strong id="miniBalUSD">0.00 $</strong></div>
+        <!-- قسم الريال السعودي -->
+        <div id="panelSAR" class="currency-panel hidden">
+          <div class="currency-panel-title">قسم الرصيد المستقل — الريال السعودي (SAR)</div>
+          <div class="balance-amount"><span id="balValSAR">0.00</span> <span style="font-size:16px;">ر.س</span></div>
+        </div>
+
+        <!-- قسم الدولار الأمريكي -->
+        <div id="panelUSD" class="currency-panel hidden">
+          <div class="currency-panel-title">قسم الرصيد المستقل — الدولار الأمريكي (USD)</div>
+          <div class="balance-amount"><span id="balValUSD">0.00</span> <span style="font-size:16px;">$</span></div>
         </div>
 
         <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
@@ -583,7 +594,7 @@
         </div>
       </div>
 
-      <!-- تحويل رصيد برقم الهاتف بنفس العملة المستقلة -->
+      <!-- تحويل رصيد برقم الهاتف من رصيد القسم النشط فقط -->
       <div class="card">
         <h3 style="margin-top:0">💸 تحويل رصيد برقم الهاتف (<span id="trfCurrBadge">YER</span>)</h3>
         <div class="field">
@@ -595,7 +606,7 @@
           <input id="trfAmount" type="number" step="0.01" min="0.01" placeholder="0.00" oninput="updateFeePreview()" />
         </div>
         <div id="feePreviewBox" class="fee-hint">
-          الرسوم المتوقعة: <strong>0.00</strong> | الإجمالي المخصوم من رصيد <span id="feeCurrLabel">YER</span>: <strong>0.00</strong>
+          الرسوم المتوقعة: <strong>0.00</strong> | الإجمالي المخصوم من رصيد <strong>YER</strong>: <strong>0.00</strong>
           <div style="color:var(--muted); margin-top:3px;">
             شرائح التحويل (YER): 500–30,000 = 200 | 30,001–130,000 = 500 | كل +100,000 = +200
           </div>
@@ -607,7 +618,7 @@
         <button class="btn btn-primary" onclick="handleTransfer()">إرسال التحويل</button>
       </div>
 
-      <!-- الدفع لنقطة بيع POS بنفس العملة المختارة -->
+      <!-- الدفع لنقطة بيع POS من رصيد القسم النشط فقط -->
       <div class="card">
         <h3 style="margin-top:0">🏪 الدفع لنقطة بيع (POS) — <span id="posCurrBadge">YER</span></h3>
         <div class="field">
@@ -703,7 +714,6 @@
         </div>
       </div>
 
-      <!-- الإيداع / الخصم الإداري حسب العملة -->
       <div class="card">
         <h3 style="margin-top:0">🏦 الإيداع / الخصم الإداري وتغذية المحافظ</h3>
         <div class="field">
@@ -835,30 +845,36 @@
       `;
     }
 
-    function selectActiveCurrency(curr) {
+    function selectCurrencySection(curr) {
       activeCurrency = ['YER', 'SAR', 'USD'].includes(curr) ? curr : 'YER';
-      document.getElementById('currBtnYER')?.classList.toggle('active', activeCurrency === 'YER');
-      document.getElementById('currBtnSAR')?.classList.toggle('active', activeCurrency === 'SAR');
-      document.getElementById('currBtnUSD')?.classList.toggle('active', activeCurrency === 'USD');
+
+      document.getElementById('secBtnYER')?.classList.toggle('active', activeCurrency === 'YER');
+      document.getElementById('secBtnSAR')?.classList.toggle('active', activeCurrency === 'SAR');
+      document.getElementById('secBtnUSD')?.classList.toggle('active', activeCurrency === 'USD');
+
+      document.getElementById('panelYER')?.classList.toggle('hidden', activeCurrency !== 'YER');
+      document.getElementById('panelSAR')?.classList.toggle('hidden', activeCurrency !== 'SAR');
+      document.getElementById('panelUSD')?.classList.toggle('hidden', activeCurrency !== 'USD');
+
       document.getElementById('trfCurrBadge').textContent = activeCurrency;
       document.getElementById('posCurrBadge').textContent = activeCurrency;
-      renderActiveBalanceBox();
+      renderAllCurrencyBalances();
       updateFeePreview();
     }
 
-    function renderActiveBalanceBox() {
+    function renderAllCurrencyBalances() {
       if (!currentUser) return;
       const yer = Number(currentUser.balance_yer ?? currentUser.balance ?? 0);
       const sar = Number(currentUser.balance_sar ?? 0);
       const usd = Number(currentUser.balance_usd ?? 0);
 
-      document.getElementById('miniBalYER').textContent = `${yer.toFixed(2)} ر.ي`;
-      document.getElementById('miniBalSAR').textContent = `${sar.toFixed(2)} ر.س`;
-      document.getElementById('miniBalUSD').textContent = `${usd.toFixed(2)} $`;
+      document.getElementById('balValYER').textContent = yer.toFixed(2);
+      document.getElementById('balValSAR').textContent = sar.toFixed(2);
+      document.getElementById('balValUSD').textContent = usd.toFixed(2);
 
-      const mapVal = { YER: yer, SAR: sar, USD: usd };
-      document.getElementById('uActiveBalance').textContent = Number(mapVal[activeCurrency] || 0).toFixed(2);
-      document.getElementById('uActiveLabel').textContent = CURRENCY_SYMBOL[activeCurrency] || activeCurrency;
+      document.getElementById('tabSubYER').textContent = `${yer.toFixed(2)} ر.ي`;
+      document.getElementById('tabSubSAR').textContent = `${sar.toFixed(2)} ر.س`;
+      document.getElementById('tabSubUSD').textContent = `${usd.toFixed(2)} $`;
     }
 
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -1067,7 +1083,7 @@
         kycEl.textContent = 'بانتظار التوثيق';
       }
 
-      selectActiveCurrency(activeCurrency);
+      selectCurrencySection(activeCurrency);
       renderUserNotifications();
       renderUserTransactions();
     }
